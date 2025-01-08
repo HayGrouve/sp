@@ -27,10 +27,17 @@ export const posts = createTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
-      () => new Date()
+      () => new Date(),
     ),
   },
   (example) => ({
     nameIndex: index("name_idx").on(example.name),
-  })
+  }),
 );
+
+// export const forecastHistory = sqliteTable('forecast_history', {
+//   id: integer('id').primaryKey(),
+//   rowNumber: integer('row_number').notNull(),
+//   isCorrect: integer('is_correct').notNull(),
+//   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`CURRENT_TIMESTAMP`),
+// });

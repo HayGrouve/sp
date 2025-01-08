@@ -49,6 +49,23 @@ interface FootballScoresTableProps {
   initialScores: FootballScore[];
 }
 
+type ForecastHistory = Record<number, boolean[]>;
+
+const ForecastHistoryDots: React.FC<{ history: boolean[] }> = ({ history }) => {
+  return (
+    <div className="flex space-x-1">
+      {history.slice(-3).map((isCorrect, index) => (
+        <div
+          key={index}
+          className={`h-2 w-2 rounded-full ${
+            isCorrect ? "bg-green-500" : "bg-red-500"
+          }`}
+        />
+      ))}
+    </div>
+  );
+};
+
 export function FootballScoresTable({
   initialScores,
 }: FootballScoresTableProps) {
@@ -67,6 +84,7 @@ export function FootballScoresTable({
   const [error, setError] = useState<string | null>(null);
   const [correctForecasts, setCorrectForecasts] = useState(0);
   const [incorrectForecasts, setIncorrectForecasts] = useState(0);
+  const [forecastHistory, setForecastHistory] = useState<ForecastHistory>({});
 
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
@@ -163,6 +181,54 @@ export function FootballScoresTable({
     return (correctForecasts / total) * 100;
   };
 
+  const updateForecastHistory = async (scores: FootballScore[]) => {
+    const newHistory: ForecastHistory = { ...forecastHistory };
+    for (const score of scores) {
+      const forecast = getForecast(score.rowNumber);
+      if (forecast && score.score.home !== null && score.score.away !== null) {
+        const isCorrect = isForecastCorrect(score.score, forecast);
+
+        // Save to database
+        try {
+          await fetch("/api/forecast-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rowNumber: score.rowNumber, isCorrect }),
+          });
+        } catch (error) {
+          console.error("Error saving forecast history:", error);
+        }
+
+        // Update local state
+        if (!newHistory[score.rowNumber]) {
+          newHistory[score.rowNumber] = [];
+        }
+        newHistory[score.rowNumber].push(isCorrect);
+        // Keep only the last 3 states
+        if (newHistory[score.rowNumber].length > 3) {
+          newHistory[score.rowNumber].shift();
+        }
+      }
+    }
+    setForecastHistory(newHistory);
+  };
+
+  const fetchForecastHistory = async (rowNumber: number) => {
+    try {
+      const response = await fetch(
+        `/api/forecast-history?rowNumber=${rowNumber}`,
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch forecast history");
+      }
+      const history = await response.json();
+      return history;
+    } catch (error) {
+      console.error("Error fetching forecast history:", error);
+      return [];
+    }
+  };
+
   useEffect(() => {
     // Set initial scores
     const sortedScores = [...initialScores].sort(sortMatches);
@@ -172,6 +238,18 @@ export function FootballScoresTable({
     const { correct, incorrect } = calculateForecastCounts(sortedScores);
     setCorrectForecasts(correct);
     setIncorrectForecasts(incorrect);
+
+    // Fetch initial forecast history
+    const fetchInitialHistory = async () => {
+      const newHistory: ForecastHistory = {};
+      for (const score of sortedScores) {
+        newHistory[score.rowNumber] = await fetchForecastHistory(
+          score.rowNumber,
+        );
+      }
+      setForecastHistory(newHistory);
+    };
+    fetchInitialHistory();
 
     // Set up interval to update scores
     const interval = setInterval(async () => {
@@ -189,6 +267,9 @@ export function FootballScoresTable({
           calculateForecastCounts(sortedUpdatedScores);
         setCorrectForecasts(correct);
         setIncorrectForecasts(incorrect);
+
+        // Update forecast history
+        await updateForecastHistory(sortedUpdatedScores);
       } catch (error) {
         console.error("Error updating scores:", error);
         if (error instanceof Error) {
@@ -372,7 +453,23 @@ export function FootballScoresTable({
                       : {}
                   }
                 >
-                  {getForecast(score.rowNumber)}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" className="h-8 w-full p-0">
+                        {getForecast(score.rowNumber)}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-medium">
+                          Forecast History:
+                        </span>
+                        <ForecastHistoryDots
+                          history={forecastHistory[score.rowNumber] || []}
+                        />
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </TableCell>
                 <TableCell>{`${score.league.country} - ${score.league.name}`}</TableCell>
                 <TableCell>
