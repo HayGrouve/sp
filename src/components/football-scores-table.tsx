@@ -17,6 +17,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { FootballScore } from "@/types/football-scores";
 import { PredictionModal } from "./prediction-modal";
 import { StatisticsModal } from "./statistics-modal";
@@ -29,8 +34,16 @@ import {
   BarChart,
   Users,
   Calendar,
+  Info,
 } from "lucide-react";
 import Image from "next/image";
+import { rowForecastMap } from "@/utils/rowForecastMap";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface FootballScoresTableProps {
   initialScores: FootballScore[];
@@ -51,6 +64,8 @@ export function FootballScoresTable({
     name: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [correctForecasts, setCorrectForecasts] = useState(0);
+  const [incorrectForecasts, setIncorrectForecasts] = useState(0);
 
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
@@ -81,10 +96,81 @@ export function FootballScoresTable({
     return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
   };
 
+  const getForecast = (rowNumber: number) => {
+    const forecastItem = rowForecastMap.find(
+      (item) => item.rowNumber === rowNumber % 175,
+    );
+    return forecastItem ? forecastItem.forecast : "";
+  };
+
+  const isForecastCorrect = (
+    score: FootballScore["score"],
+    forecast: string,
+  ) => {
+    if (score.home === null || score.away === null) return false;
+
+    const homeWin = score.home > score.away;
+    const awayWin = score.home < score.away;
+    const draw = score.home === score.away;
+
+    switch (forecast) {
+      case "1/X":
+        return homeWin || draw;
+      case "1/2":
+        return homeWin || awayWin;
+      case "X/2":
+        return draw || awayWin;
+      default:
+        return false;
+    }
+  };
+
+  const getForecastCellStyle = (
+    score: FootballScore["score"],
+    forecast: string,
+  ) => {
+    if (score.home === null || score.away === null) return {};
+
+    return {
+      backgroundColor: isForecastCorrect(score, forecast)
+        ? "rgba(0, 255, 0, 0.2)"
+        : "rgba(255, 0, 0, 0.2)",
+    };
+  };
+
+  const calculateForecastCounts = (scores: FootballScore[]) => {
+    let correct = 0;
+    let incorrect = 0;
+
+    scores.forEach((score) => {
+      const forecast = getForecast(score.rowNumber);
+      if (forecast && score.score.home !== null && score.score.away !== null) {
+        if (isForecastCorrect(score.score, forecast)) {
+          correct++;
+        } else {
+          incorrect++;
+        }
+      }
+    });
+
+    return { correct, incorrect };
+  };
+
+  const calculateWinRate = () => {
+    const total = correctForecasts + incorrectForecasts;
+    if (total === 0) return 0;
+    return (correctForecasts / total) * 100;
+  };
+
   useEffect(() => {
     // Set initial scores
     const sortedScores = [...initialScores].sort(sortMatches);
     setScores(sortedScores);
+
+    // Calculate initial forecast counts
+    const { correct, incorrect } = calculateForecastCounts(sortedScores);
+    setCorrectForecasts(correct);
+    setIncorrectForecasts(incorrect);
 
     // Set up interval to update scores
     const interval = setInterval(async () => {
@@ -94,7 +180,14 @@ export function FootballScoresTable({
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const updatedScores: FootballScore[] = await response.json();
-        setScores(updatedScores.sort(sortMatches));
+        const sortedUpdatedScores = updatedScores.sort(sortMatches);
+        setScores(sortedUpdatedScores);
+
+        // Recalculate forecast counts
+        const { correct, incorrect } =
+          calculateForecastCounts(sortedUpdatedScores);
+        setCorrectForecasts(correct);
+        setIncorrectForecasts(incorrect);
       } catch (error) {
         console.error("Error updating scores:", error);
         if (error instanceof Error) {
@@ -143,6 +236,48 @@ export function FootballScoresTable({
             <TableHead>1</TableHead>
             <TableHead>X</TableHead>
             <TableHead>2</TableHead>
+            <TableHead>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-full p-0 font-bold">
+                    fcast
+                    <Info className="ml-1 h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80">
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <h4 className="font-medium leading-none">
+                        Forecast Statistics
+                      </h4>
+                      <p className="text-sm text-muted-foreground">
+                        Overview of forecast accuracy
+                      </p>
+                    </div>
+                    <div className="grid gap-2">
+                      <div className="grid grid-cols-3 items-center gap-4">
+                        <span className="text-sm font-medium">Correct:</span>
+                        <span className="col-span-2 text-green-600">
+                          {correctForecasts}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 items-center gap-4">
+                        <span className="text-sm font-medium">Incorrect:</span>
+                        <span className="col-span-2 text-red-600">
+                          {incorrectForecasts}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 items-center gap-4">
+                        <span className="text-sm font-medium">Win Rate:</span>
+                        <span className="col-span-2 font-semibold">
+                          {calculateWinRate().toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </TableHead>
             <TableHead>League</TableHead>
             <TableHead>Flag</TableHead>
             <TableHead>
@@ -156,7 +291,7 @@ export function FootballScoresTable({
               {(index === 0 || score.day !== scores[index - 1].day) && (
                 <TableRow key={`day-${score.day}-${score.fixtureId}`}>
                   <TableCell
-                    colSpan={11}
+                    colSpan={12}
                     className="bg-muted text-center font-semibold"
                   >
                     {score.day}
@@ -214,6 +349,18 @@ export function FootballScoresTable({
                 <TableCell>{score.odds.home}</TableCell>
                 <TableCell>{score.odds.draw}</TableCell>
                 <TableCell>{score.odds.away}</TableCell>
+                <TableCell
+                  style={
+                    getForecast(score.rowNumber)
+                      ? getForecastCellStyle(
+                          score.score,
+                          getForecast(score.rowNumber),
+                        )
+                      : {}
+                  }
+                >
+                  {getForecast(score.rowNumber)}
+                </TableCell>
                 <TableCell>{`${score.league.country} - ${score.league.name}`}</TableCell>
                 <TableCell>
                   {score.league.flag ? (
@@ -231,6 +378,7 @@ export function FootballScoresTable({
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="h-8 w-8 p-0">
+                        <span className="sr-only">Open menu</span>
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -243,30 +391,97 @@ export function FootballScoresTable({
                         <LineChart className="mr-2 h-4 w-4" />
                         <span>Prediction</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          handleOptionClick(score.fixtureId, "statistics")
-                        }
-                      >
-                        <BarChart className="mr-2 h-4 w-4" />
-                        <span>Statistics</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          handleOptionClick(score.fixtureId, "lineups")
-                        }
-                      >
-                        <Users className="mr-2 h-4 w-4" />
-                        <span>Lineups</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          handleOptionClick(score.fixtureId, "events")
-                        }
-                      >
-                        <Calendar className="mr-2 h-4 w-4" />
-                        <span>Events</span>
-                      </DropdownMenuItem>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleOptionClick(
+                                    score.fixtureId,
+                                    "statistics",
+                                  )
+                                }
+                                disabled={score.status.short === "NS"}
+                                className={
+                                  score.status.short === "NS"
+                                    ? "cursor-not-allowed opacity-50"
+                                    : ""
+                                }
+                              >
+                                <BarChart className="mr-2 h-4 w-4" />
+                                <span>Statistics</span>
+                              </DropdownMenuItem>
+                            </div>
+                          </TooltipTrigger>
+                          {score.status.short === "NS" && (
+                            <TooltipContent>
+                              <p>
+                                Statistics will be available once the match
+                                starts
+                              </p>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleOptionClick(score.fixtureId, "lineups")
+                                }
+                                disabled={score.status.short === "NS"}
+                                className={
+                                  score.status.short === "NS"
+                                    ? "cursor-not-allowed opacity-50"
+                                    : ""
+                                }
+                              >
+                                <Users className="mr-2 h-4 w-4" />
+                                <span>Lineups</span>
+                              </DropdownMenuItem>
+                            </div>
+                          </TooltipTrigger>
+                          {score.status.short === "NS" && (
+                            <TooltipContent>
+                              <p>
+                                Lineups will be available once the match starts
+                              </p>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  handleOptionClick(score.fixtureId, "events")
+                                }
+                                disabled={score.status.short === "NS"}
+                                className={
+                                  score.status.short === "NS"
+                                    ? "cursor-not-allowed opacity-50"
+                                    : ""
+                                }
+                              >
+                                <Calendar className="mr-2 h-4 w-4" />
+                                <span>Events</span>
+                              </DropdownMenuItem>
+                            </div>
+                          </TooltipTrigger>
+                          {score.status.short === "NS" && (
+                            <TooltipContent>
+                              <p>
+                                Events will be available once the match starts
+                              </p>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
