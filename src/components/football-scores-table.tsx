@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useState, useEffect } from "react";
 import {
   Table,
@@ -16,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import type { FootballScore } from "@/types/football-scores";
+import { FootballScore } from "@/types/football-scores";
 import { PredictionModal } from "./prediction-modal";
 import { StatisticsModal } from "./statistics-modal";
 import { LineupsModal } from "./lineups-modal";
@@ -39,7 +40,6 @@ export function FootballScoresTable({
   initialScores,
 }: FootballScoresTableProps) {
   const [scores, setScores] = useState<FootballScore[]>(initialScores);
-  const [odds, setOdds] = useState<Record<number, FootballScore["odds"]>>({});
   const [selectedFixtureId, setSelectedFixtureId] = useState<number | null>(
     null,
   );
@@ -50,6 +50,7 @@ export function FootballScoresTable({
     id: number;
     name: string;
   } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const formatTime = (isoString: string) => {
     const date = new Date(isoString);
@@ -60,17 +61,6 @@ export function FootballScoresTable({
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    });
-  };
-
-  const formatDate = (isoString: string) => {
-    const date = new Date(isoString);
-    const sofiaTime = new Date(
-      date.toLocaleString("en-US", { timeZone: "Europe/Sofia" }),
-    );
-    return sofiaTime.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
     });
   };
 
@@ -92,26 +82,27 @@ export function FootballScoresTable({
   };
 
   useEffect(() => {
-    // Set initial scores and odds
+    // Set initial scores
     const sortedScores = [...initialScores].sort(sortMatches);
     setScores(sortedScores);
-    const initialOdds: Record<number, FootballScore["odds"]> = {};
-    sortedScores.forEach((score) => {
-      initialOdds[score.fixtureId] = score.odds;
-    });
-    setOdds(initialOdds);
 
-    // Set up interval to update scores only
+    // Set up interval to update scores
     const interval = setInterval(async () => {
       try {
         const response = await fetch("/api/football-scores");
         if (!response.ok) {
-          throw new Error("Failed to fetch updated scores");
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
         const updatedScores: FootballScore[] = await response.json();
         setScores(updatedScores.sort(sortMatches));
       } catch (error) {
         console.error("Error updating scores:", error);
+        if (error instanceof Error) {
+          console.error("Error message:", error.message);
+          setError(`Failed to update scores: ${error.message}`);
+        } else {
+          setError("An unknown error occurred while updating scores");
+        }
       }
     }, 60000); // Update every minute
 
@@ -132,6 +123,15 @@ export function FootballScoresTable({
 
   return (
     <div className="w-full overflow-auto">
+      {error && (
+        <div
+          className="relative mb-4 rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700"
+          role="alert"
+        >
+          <strong className="font-bold">Error: </strong>
+          <span className="block sm:inline">{error}</span>
+        </div>
+      )}
       <Table>
         <TableHeader>
           <TableRow>
@@ -152,141 +152,153 @@ export function FootballScoresTable({
         </TableHeader>
         <TableBody>
           {scores.map((score, index) => (
-            <TableRow key={score.fixtureId}>
-              <TableCell>{index + 1}</TableCell>
-              <TableCell>{formatTime(score.startTime)}</TableCell>
-              <TableCell className="text-left">
-                <button
-                  onClick={() =>
-                    handleTeamClick(score.home.id, score.home.name)
-                  }
-                  className="flex items-center text-left text-blue-600 hover:underline"
-                >
-                  {score.home.logo ? (
+            <React.Fragment key={score.fixtureId}>
+              {(index === 0 || score.day !== scores[index - 1].day) && (
+                <TableRow key={`day-${score.day}-${score.fixtureId}`}>
+                  <TableCell
+                    colSpan={11}
+                    className="bg-muted text-center font-semibold"
+                  >
+                    {score.day}
+                  </TableCell>
+                </TableRow>
+              )}
+              <TableRow>
+                <TableCell>{score.rowNumber}</TableCell>
+                <TableCell>{formatTime(score.startTime)}</TableCell>
+                <TableCell className="text-left">
+                  <button
+                    onClick={() =>
+                      handleTeamClick(score.home.id, score.home.name)
+                    }
+                    className="flex items-center text-left text-blue-600 hover:underline"
+                  >
+                    {score.home.logo ? (
+                      <Image
+                        src={score.home.logo}
+                        alt={score.home.name}
+                        width={20}
+                        height={20}
+                        className="mr-2"
+                      />
+                    ) : (
+                      <div className="mr-2 h-5 w-5 rounded-full bg-gray-200" />
+                    )}
+                    {score.home.name}
+                  </button>
+                </TableCell>
+                <TableCell className="text-left">
+                  <button
+                    onClick={() =>
+                      handleTeamClick(score.away.id, score.away.name)
+                    }
+                    className="flex items-center text-left text-blue-600 hover:underline"
+                  >
+                    {score.away.logo ? (
+                      <Image
+                        src={score.away.logo}
+                        alt={score.away.name}
+                        width={20}
+                        height={20}
+                        className="mr-2"
+                      />
+                    ) : (
+                      <div className="mr-2 h-5 w-5 rounded-full bg-gray-200" />
+                    )}
+                    {score.away.name}
+                  </button>
+                </TableCell>
+                <TableCell>
+                  {getScoreDisplay(score.score, score.status)}
+                </TableCell>
+                <TableCell>{score.odds.home}</TableCell>
+                <TableCell>{score.odds.draw}</TableCell>
+                <TableCell>{score.odds.away}</TableCell>
+                <TableCell>{`${score.league.country} - ${score.league.name}`}</TableCell>
+                <TableCell>
+                  {score.league.flag ? (
                     <Image
-                      src={score.home.logo}
-                      alt={score.home.name}
+                      src={score.league.flag}
+                      alt={score.league.country}
                       width={20}
                       height={20}
-                      className="mr-2"
                     />
                   ) : (
-                    <div className="mr-2 h-5 w-5 rounded-full bg-gray-200" />
+                    <div className="h-5 w-5 rounded-full bg-gray-200" />
                   )}
-                  {score.home.name}
-                </button>
-              </TableCell>
-              <TableCell className="text-left">
-                <button
-                  onClick={() =>
-                    handleTeamClick(score.away.id, score.away.name)
-                  }
-                  className="flex items-center text-left text-blue-600 hover:underline"
-                >
-                  {score.away.logo ? (
-                    <Image
-                      src={score.away.logo}
-                      alt={score.away.name}
-                      width={20}
-                      height={20}
-                      className="mr-2"
-                    />
-                  ) : (
-                    <div className="mr-2 h-5 w-5 rounded-full bg-gray-200" />
-                  )}
-                  {score.away.name}
-                </button>
-              </TableCell>
-              <TableCell>
-                {getScoreDisplay(score.score, score.status)}
-              </TableCell>
-              <TableCell>{odds[score.fixtureId]?.home || "-"}</TableCell>
-              <TableCell>{odds[score.fixtureId]?.draw || "-"}</TableCell>
-              <TableCell>{odds[score.fixtureId]?.away || "-"}</TableCell>
-              <TableCell>{`${score.league.country} - ${score.league.name}`}</TableCell>
-              <TableCell>
-                {score.league.flag ? (
-                  <Image
-                    src={score.league.flag}
-                    alt={score.league.country}
-                    width={20}
-                    height={20}
-                  />
-                ) : (
-                  <div className="h-5 w-5 rounded-full bg-gray-200" />
-                )}
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() =>
-                        handleOptionClick(score.fixtureId, "prediction")
-                      }
-                    >
-                      <LineChart className="mr-2 h-4 w-4" />
-                      <span>Prediction</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        handleOptionClick(score.fixtureId, "statistics")
-                      }
-                    >
-                      <BarChart className="mr-2 h-4 w-4" />
-                      <span>Statistics</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        handleOptionClick(score.fixtureId, "lineups")
-                      }
-                    >
-                      <Users className="mr-2 h-4 w-4" />
-                      <span>Lineups</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        handleOptionClick(score.fixtureId, "events")
-                      }
-                    >
-                      <Calendar className="mr-2 h-4 w-4" />
-                      <span>Events</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-8 w-8 p-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          handleOptionClick(score.fixtureId, "prediction")
+                        }
+                      >
+                        <LineChart className="mr-2 h-4 w-4" />
+                        <span>Prediction</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          handleOptionClick(score.fixtureId, "statistics")
+                        }
+                      >
+                        <BarChart className="mr-2 h-4 w-4" />
+                        <span>Statistics</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          handleOptionClick(score.fixtureId, "lineups")
+                        }
+                      >
+                        <Users className="mr-2 h-4 w-4" />
+                        <span>Lineups</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          handleOptionClick(score.fixtureId, "events")
+                        }
+                      >
+                        <Calendar className="mr-2 h-4 w-4" />
+                        <span>Events</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            </React.Fragment>
           ))}
         </TableBody>
       </Table>
       <PredictionModal
         isOpen={modalType === "prediction"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId ?? 0}
+        fixtureId={selectedFixtureId || 0}
       />
       <StatisticsModal
         isOpen={modalType === "statistics"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId ?? 0}
+        fixtureId={selectedFixtureId || 0}
       />
       <LineupsModal
         isOpen={modalType === "lineups"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId ?? 0}
+        fixtureId={selectedFixtureId || 0}
       />
       <EventsModal
         isOpen={modalType === "events"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId ?? 0}
+        fixtureId={selectedFixtureId || 0}
       />
       <TeamStatisticsModal
         isOpen={!!selectedTeam}
         onClose={() => setSelectedTeam(null)}
-        teamId={selectedTeam?.id ?? 0}
+        teamId={selectedTeam?.id || 0}
         leagueId={1}
         season={2023}
       />

@@ -1,17 +1,46 @@
 import { NextResponse } from "next/server";
-import type { FootballScore } from "@/types/football-scores";
+import { FootballScore } from "@/types/football-scores";
 
-interface Odds {
-  home: number | null;
-  draw: number | null;
-  away: number | null;
+const SOFIA_TIMEZONE = "Europe/Sofia";
+
+function getSofiaTime() {
+  return new Date().toLocaleString("en-US", { timeZone: SOFIA_TIMEZONE });
+}
+
+function getDateRange() {
+  const sofiaTime = new Date(getSofiaTime());
+  const dayOfWeek = sofiaTime.getDay();
+  const hour = sofiaTime.getHours();
+
+  let startDay, endDay;
+
+  if (
+    (dayOfWeek === 6 && hour >= 10) ||
+    (dayOfWeek >= 0 && dayOfWeek <= 2) ||
+    (dayOfWeek === 3 && hour < 10)
+  ) {
+    // Saturday 10:00 or later, or Sunday through Tuesday, or Wednesday before 10:00
+    startDay = dayOfWeek === 6 && hour >= 10 ? 0 : dayOfWeek;
+    endDay = 2;
+  } else {
+    // Wednesday 10:00 or later, or Thursday through Friday
+    startDay = 3;
+    endDay = 5;
+  }
+
+  const dates = [];
+  for (let i = startDay; i <= endDay; i++) {
+    const date = new Date(sofiaTime);
+    date.setDate(sofiaTime.getDate() - sofiaTime.getDay() + i);
+    dates.push(date.toISOString().split("T")[0]);
+  }
+
+  return dates;
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const leagueIds = searchParams.get("leagueIds");
-  const page = parseInt(searchParams.get("page") ?? "1", 10);
-  const limit = parseInt(searchParams.get("limit") ?? "20", 10);
 
   if (!leagueIds) {
     return NextResponse.json(
@@ -21,39 +50,54 @@ export async function GET(request: Request) {
   }
 
   const leagueIdsArray = leagueIds.split(",").map(Number);
-  const today = new Date().toISOString().split("T")[0];
-  const url = `https://api-football-v1.p.rapidapi.com/v3/fixtures?date=${today}`;
+  const dateRange = getDateRange();
+
+  const urls = dateRange.map(
+    (date) => `https://api-football-v1.p.rapidapi.com/v3/fixtures?date=${date}`,
+  );
 
   const options = {
     method: "GET",
     headers: {
-      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY!,
+      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY as string,
       "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
     },
   };
 
   try {
-    console.log(`Fetching data from: ${url}`);
-    const response = await fetch(url, options);
+    const responses = await Promise.all(urls.map((url) => fetch(url, options)));
+    const results = await Promise.all(responses.map((res) => res.json()));
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    let allFixtures: any[] = [];
+    results.forEach((result, index) => {
+      if (result.response && Array.isArray(result.response)) {
+        const filteredFixtures = result.response.filter((fixture: any) =>
+          leagueIdsArray.includes(fixture.league.id),
+        );
+        allFixtures = [
+          ...allFixtures,
+          ...filteredFixtures.map((fixture: any) => ({
+            ...fixture,
+            day: new Date(dateRange[index]).toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "short",
+              day: "numeric",
+              timeZone: SOFIA_TIMEZONE,
+            }),
+          })),
+        ];
+      } else {
+        console.error("Unexpected response format:", result);
+      }
+    });
+
+    if (allFixtures.length === 0) {
+      console.log("No matches found for the given leagues and dates");
+      return NextResponse.json([]);
     }
-
-    const result = await response.json();
-    console.log(`API Response: ${result.results} fixtures found`);
-
-    if (!result.response || !Array.isArray(result.response)) {
-      console.error("Unexpected response format:", result);
-      throw new Error("Unexpected response format from external API");
-    }
-
-    const filteredFixtures = result.response.filter((fixture: any) =>
-      leagueIdsArray.includes(fixture.league.id),
-    );
 
     // Fetch odds for all fixtures
-    const oddsPromises = filteredFixtures.map((fixture: any) =>
+    const oddsPromises = allFixtures.map((fixture: any) =>
       fetch(
         `https://api-football-v1.p.rapidapi.com/v3/odds?fixture=${fixture.fixture.id}&bookmaker=6`,
         options,
@@ -62,17 +106,18 @@ export async function GET(request: Request) {
 
     const oddsResults = await Promise.all(oddsPromises);
 
-    const allScores: FootballScore[] = filteredFixtures.map(
-      (fixture: any, index: number) => {
+    const allScores: FootballScore[] = allFixtures
+      .map((fixture: any, index: number) => {
         const oddsData =
           oddsResults[index].response[0]?.bookmakers[0]?.bets[0]?.values || [];
-        const odds: Odds = {
+        const odds = {
           home: oddsData.find((odd: any) => odd.value === "Home")?.odd || null,
           draw: oddsData.find((odd: any) => odd.value === "Draw")?.odd || null,
           away: oddsData.find((odd: any) => odd.value === "Away")?.odd || null,
         };
 
         return {
+          day: fixture.day,
           rowNumber: index + 1,
           fixtureId: fixture.fixture.id,
           startTime: fixture.fixture.date,
@@ -108,37 +153,22 @@ export async function GET(request: Request) {
           },
           odds,
         };
-      },
+      })
+      .filter((score) => score.odds.home && score.odds.draw && score.odds.away);
+
+    // Sort matches by start time
+    allScores.sort(
+      (a, b) =>
+        new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
     );
 
-    console.log(
-      `Filtered ${filteredFixtures.length} fixtures for the specified leagues`,
-    );
-
-    if (filteredFixtures.length === 0) {
-      console.log("No matches found for the given leagues and date");
-      return NextResponse.json([]);
-    }
-
-    // Sort matches: Live first, then by start time
-    allScores.sort((a, b) => {
-      if (a.status.short !== "FT" && b.status.short === "FT") return -1;
-      if (a.status.short === "FT" && b.status.short !== "FT") return 1;
-      return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+    // Reassign row numbers after filtering and sorting
+    allScores.forEach((score, index) => {
+      score.rowNumber = index + 1;
     });
 
-    // Apply pagination
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginatedScores = allScores.slice(startIndex, endIndex);
-
-    // Reassign row numbers after sorting and pagination
-    paginatedScores.forEach((score, index) => {
-      score.rowNumber = startIndex + index + 1;
-    });
-
-    console.log(`Returning ${paginatedScores.length} matches`);
-    return NextResponse.json(paginatedScores);
+    console.log(`Returning ${allScores.length} matches`);
+    return NextResponse.json(allScores);
   } catch (error) {
     console.error("Error fetching football scores:", error);
     return NextResponse.json(
