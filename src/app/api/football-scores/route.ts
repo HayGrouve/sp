@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import type { FootballScore } from "@/types/football-scores";
 
+interface Odds {
+  home: number | null;
+  draw: number | null;
+  away: number | null;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const leagueIds = searchParams.get("leagueIds");
@@ -46,6 +52,65 @@ export async function GET(request: Request) {
       leagueIdsArray.includes(fixture.league.id),
     );
 
+    // Fetch odds for all fixtures
+    const oddsPromises = filteredFixtures.map((fixture: any) =>
+      fetch(
+        `https://api-football-v1.p.rapidapi.com/v3/odds?fixture=${fixture.fixture.id}&bookmaker=6`,
+        options,
+      ).then((res) => res.json()),
+    );
+
+    const oddsResults = await Promise.all(oddsPromises);
+
+    const allScores: FootballScore[] = filteredFixtures.map(
+      (fixture: any, index: number) => {
+        const oddsData =
+          oddsResults[index].response[0]?.bookmakers[0]?.bets[0]?.values || [];
+        const odds: Odds = {
+          home: oddsData.find((odd: any) => odd.value === "Home")?.odd || null,
+          draw: oddsData.find((odd: any) => odd.value === "Draw")?.odd || null,
+          away: oddsData.find((odd: any) => odd.value === "Away")?.odd || null,
+        };
+
+        return {
+          rowNumber: index + 1,
+          fixtureId: fixture.fixture.id,
+          startTime: fixture.fixture.date,
+          status: {
+            long: fixture.fixture.status.long,
+            short: fixture.fixture.status.short,
+            elapsed: fixture.fixture.status.elapsed,
+          },
+          home: {
+            id: fixture.teams.home.id,
+            name: fixture.teams.home.name,
+            logo: fixture.teams.home.logo,
+            winner: fixture.teams.home.winner,
+          },
+          away: {
+            id: fixture.teams.away.id,
+            name: fixture.teams.away.name,
+            logo: fixture.teams.away.logo,
+            winner: fixture.teams.away.winner,
+          },
+          score: {
+            home: fixture.goals.home,
+            away: fixture.goals.away,
+          },
+          league: {
+            id: fixture.league.id,
+            name: fixture.league.name,
+            country: fixture.league.country,
+            logo: fixture.league.logo,
+            flag: fixture.league.flag,
+            season: fixture.league.season,
+            round: fixture.league.round,
+          },
+          odds,
+        };
+      },
+    );
+
     console.log(
       `Filtered ${filteredFixtures.length} fixtures for the specified leagues`,
     );
@@ -54,44 +119,6 @@ export async function GET(request: Request) {
       console.log("No matches found for the given leagues and date");
       return NextResponse.json([]);
     }
-
-    const allScores: FootballScore[] = filteredFixtures.map(
-      (fixture: any, index: number) => ({
-        rowNumber: index + 1,
-        fixtureId: fixture.fixture.id,
-        startTime: fixture.fixture.date,
-        status: {
-          long: fixture.fixture.status.long,
-          short: fixture.fixture.status.short,
-          elapsed: fixture.fixture.status.elapsed,
-        },
-        home: {
-          id: fixture.teams.home.id,
-          name: fixture.teams.home.name,
-          logo: fixture.teams.home.logo,
-          winner: fixture.teams.home.winner,
-        },
-        away: {
-          id: fixture.teams.away.id,
-          name: fixture.teams.away.name,
-          logo: fixture.teams.away.logo,
-          winner: fixture.teams.away.winner,
-        },
-        score: {
-          home: fixture.goals.home,
-          away: fixture.goals.away,
-        },
-        league: {
-          id: fixture.league.id,
-          name: fixture.league.name,
-          country: fixture.league.country,
-          logo: fixture.league.logo,
-          flag: fixture.league.flag,
-          season: fixture.league.season,
-          round: fixture.league.round,
-        },
-      }),
-    );
 
     // Sort matches: Live first, then by start time
     allScores.sort((a, b) => {

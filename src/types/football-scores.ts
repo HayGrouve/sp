@@ -32,6 +32,7 @@ export interface FootballScore {
     season: number;
     round: string;
   };
+  odds: Odds;
 }
 
 export interface Prediction {
@@ -166,4 +167,10 @@ export interface TeamStatistics {
       };
     };
   };
+}
+
+export interface Odds {
+  home: string | null;
+  draw: string | null;
+  away: string | null;
 }

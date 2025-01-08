@@ -39,6 +39,7 @@ export function FootballScoresTable({
   initialScores,
 }: FootballScoresTableProps) {
   const [scores, setScores] = useState<FootballScore[]>(initialScores);
+  const [odds, setOdds] = useState<Record<number, FootballScore["odds"]>>({});
   const [selectedFixtureId, setSelectedFixtureId] = useState<number | null>(
     null,
   );
@@ -62,6 +63,17 @@ export function FootballScoresTable({
     });
   };
 
+  const formatDate = (isoString: string) => {
+    const date = new Date(isoString);
+    const sofiaTime = new Date(
+      date.toLocaleString("en-US", { timeZone: "Europe/Sofia" }),
+    );
+    return sofiaTime.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const getScoreDisplay = (
     score: FootballScore["score"],
     status: FootballScore["status"],
@@ -80,7 +92,30 @@ export function FootballScoresTable({
   };
 
   useEffect(() => {
-    setScores([...initialScores].sort(sortMatches));
+    // Set initial scores and odds
+    const sortedScores = [...initialScores].sort(sortMatches);
+    setScores(sortedScores);
+    const initialOdds: Record<number, FootballScore["odds"]> = {};
+    sortedScores.forEach((score) => {
+      initialOdds[score.fixtureId] = score.odds;
+    });
+    setOdds(initialOdds);
+
+    // Set up interval to update scores only
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch("/api/football-scores");
+        if (!response.ok) {
+          throw new Error("Failed to fetch updated scores");
+        }
+        const updatedScores: FootballScore[] = await response.json();
+        setScores(updatedScores.sort(sortMatches));
+      } catch (error) {
+        console.error("Error updating scores:", error);
+      }
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
   }, [initialScores]);
 
   const handleOptionClick = (
@@ -105,6 +140,9 @@ export function FootballScoresTable({
             <TableHead className="text-left">Home</TableHead>
             <TableHead className="text-left">Away</TableHead>
             <TableHead>Score</TableHead>
+            <TableHead>1</TableHead>
+            <TableHead>X</TableHead>
+            <TableHead>2</TableHead>
             <TableHead>League</TableHead>
             <TableHead>Flag</TableHead>
             <TableHead>
@@ -162,6 +200,9 @@ export function FootballScoresTable({
               <TableCell>
                 {getScoreDisplay(score.score, score.status)}
               </TableCell>
+              <TableCell>{odds[score.fixtureId]?.home || "-"}</TableCell>
+              <TableCell>{odds[score.fixtureId]?.draw || "-"}</TableCell>
+              <TableCell>{odds[score.fixtureId]?.away || "-"}</TableCell>
               <TableCell>{`${score.league.country} - ${score.league.name}`}</TableCell>
               <TableCell>
                 {score.league.flag ? (
