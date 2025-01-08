@@ -5,6 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Event } from "@/types/football-scores";
 
 interface EventsModalProps {
@@ -43,32 +44,34 @@ export function EventsModal({ isOpen, onClose, fixtureId }: EventsModalProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
+      <DialogContent className="flex max-h-[80vh] flex-col">
         <DialogHeader>
           <DialogTitle>Match Events</DialogTitle>
         </DialogHeader>
-        {isLoading && <p>Loading events...</p>}
-        {error && <p className="text-red-500">{error}</p>}
-        {events && events.length > 0 ? (
-          <div className="space-y-4">
-            {events.map((event, index) => (
-              <div key={index} className="border-b pb-2">
-                <p className="font-semibold">
-                  {event.time.elapsed}&apos;
-                  {event.time.extra && `+${event.time.extra}`} -
-                  {event.team.name}
-                </p>
-                <p>
-                  {event.type}: {event.detail}
-                </p>
-                <p>Player: {event.player.name}</p>
-                {event.assist.name && <p>Assist: {event.assist.name}</p>}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p>No events available</p>
-        )}
+        <ScrollArea className="flex-grow">
+          {isLoading && <p>Loading events...</p>}
+          {error && <p className="text-red-500">{error}</p>}
+          {events && events.length > 0 ? (
+            <div className="space-y-4 pr-4">
+              {events.map((event, index) => (
+                <div key={index} className="border-b pb-2">
+                  <p className="font-semibold">
+                    {event.time.elapsed}&apos;
+                    {event.time.extra && `+${event.time.extra}`} -
+                    {event.team.name}
+                  </p>
+                  <p>
+                    {event.type}: {event.detail}
+                  </p>
+                  <p>Player: {event.player.name}</p>
+                  {event.assist.name && <p>Assist: {event.assist.name}</p>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>No events available</p>
+          )}
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   );

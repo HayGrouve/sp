@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Statistics } from "@/types/football-scores";
+import type { Statistics } from "@/types/football-scores";
 
 interface StatisticsModalProps {
   isOpen: boolean;

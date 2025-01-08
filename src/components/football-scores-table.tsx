@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { FootballScore } from "@/types/football-scores";
+import type { FootballScore } from "@/types/football-scores";
 import { PredictionModal } from "./prediction-modal";
 import { StatisticsModal } from "./statistics-modal";
 import { LineupsModal } from "./lineups-modal";
@@ -38,6 +38,7 @@ interface FootballScoresTableProps {
 export function FootballScoresTable({
   initialScores,
 }: FootballScoresTableProps) {
+  const [scores, setScores] = useState<FootballScore[]>(initialScores);
   const [selectedFixtureId, setSelectedFixtureId] = useState<number | null>(
     null,
   );
@@ -61,6 +62,27 @@ export function FootballScoresTable({
     });
   };
 
+  const getScoreDisplay = (
+    score: FootballScore["score"],
+    status: FootballScore["status"],
+  ) => {
+    if (status.short === "FT") {
+      return `${score.home} - ${score.away}`;
+    }
+    if (status.short === "1H" || status.short === "2H") {
+      return `${score.home} - ${score.away} (${status.short} ${status.elapsed}')`;
+    }
+    return status.short;
+  };
+
+  const sortMatches = (a: FootballScore, b: FootballScore) => {
+    return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+  };
+
+  useEffect(() => {
+    setScores([...initialScores].sort(sortMatches));
+  }, [initialScores]);
+
   const handleOptionClick = (
     fixtureId: number,
     type: "prediction" | "statistics" | "lineups" | "events",
@@ -83,7 +105,6 @@ export function FootballScoresTable({
             <TableHead className="text-left">Home</TableHead>
             <TableHead className="text-left">Away</TableHead>
             <TableHead>Score</TableHead>
-            <TableHead>Status</TableHead>
             <TableHead>League</TableHead>
             <TableHead>Flag</TableHead>
             <TableHead>
@@ -92,9 +113,9 @@ export function FootballScoresTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {initialScores.map((score) => (
-            <TableRow key={score.rowNumber}>
-              <TableCell>{score.rowNumber}</TableCell>
+          {scores.map((score, index) => (
+            <TableRow key={score.fixtureId}>
+              <TableCell>{index + 1}</TableCell>
               <TableCell>{formatTime(score.startTime)}</TableCell>
               <TableCell className="text-left">
                 <button
@@ -103,13 +124,17 @@ export function FootballScoresTable({
                   }
                   className="flex items-center text-left text-blue-600 hover:underline"
                 >
-                  <Image
-                    src={score.home.logo}
-                    alt={score.home.name}
-                    width={20}
-                    height={20}
-                    className="mr-2"
-                  />
+                  {score.home.logo ? (
+                    <Image
+                      src={score.home.logo}
+                      alt={score.home.name}
+                      width={20}
+                      height={20}
+                      className="mr-2"
+                    />
+                  ) : (
+                    <div className="mr-2 h-5 w-5 rounded-full bg-gray-200" />
+                  )}
                   {score.home.name}
                 </button>
               </TableCell>
@@ -120,26 +145,35 @@ export function FootballScoresTable({
                   }
                   className="flex items-center text-left text-blue-600 hover:underline"
                 >
-                  <Image
-                    src={score.away.logo}
-                    alt={score.away.name}
-                    width={20}
-                    height={20}
-                    className="mr-2"
-                  />
+                  {score.away.logo ? (
+                    <Image
+                      src={score.away.logo}
+                      alt={score.away.name}
+                      width={20}
+                      height={20}
+                      className="mr-2"
+                    />
+                  ) : (
+                    <div className="mr-2 h-5 w-5 rounded-full bg-gray-200" />
+                  )}
                   {score.away.name}
                 </button>
               </TableCell>
-              <TableCell>{`${score.score.home} - ${score.score.away}`}</TableCell>
-              <TableCell>{score.status.short}</TableCell>
+              <TableCell>
+                {getScoreDisplay(score.score, score.status)}
+              </TableCell>
               <TableCell>{`${score.league.country} - ${score.league.name}`}</TableCell>
               <TableCell>
-                <Image
-                  src={score.league.flag}
-                  alt={score.league.country}
-                  width={20}
-                  height={20}
-                />
+                {score.league.flag ? (
+                  <Image
+                    src={score.league.flag}
+                    alt={score.league.country}
+                    width={20}
+                    height={20}
+                  />
+                ) : (
+                  <div className="h-5 w-5 rounded-full bg-gray-200" />
+                )}
               </TableCell>
               <TableCell>
                 <DropdownMenu>
