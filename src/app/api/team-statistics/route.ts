@@ -5,11 +5,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const teamId = searchParams.get("teamId");
   const leagueId = searchParams.get("leagueId");
-  const season = searchParams.get("season");
+  const season =
+    searchParams.get("season") || (new Date().getFullYear() - 1).toString();
 
-  if (!teamId || !leagueId || !season) {
+  if (!teamId || !leagueId) {
     return NextResponse.json(
-      { error: "Team ID, League ID, and Season are required" },
+      { error: "Team ID and League ID are required" },
       { status: 400 },
     );
   }
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   const options = {
     method: "GET",
     headers: {
-      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY!,
+      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY as string,
       "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
     },
   };
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
     const response = await fetch(url, options);
     const result = await response.json();
 
-    if (!result.response) {
+    if (!result.response || Object.keys(result.response).length === 0) {
       return NextResponse.json(
         { error: "No team statistics data available" },
         { status: 404 },

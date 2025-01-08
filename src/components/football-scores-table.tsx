@@ -62,6 +62,7 @@ export function FootballScoresTable({
   const [selectedTeam, setSelectedTeam] = useState<{
     id: number;
     name: string;
+    leagueId: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [correctForecasts, setCorrectForecasts] = useState(0);
@@ -210,8 +211,12 @@ export function FootballScoresTable({
     setModalType(type);
   };
 
-  const handleTeamClick = (teamId: number, teamName: string) => {
-    setSelectedTeam({ id: teamId, name: teamName });
+  const handleTeamClick = (
+    teamId: number,
+    teamName: string,
+    leagueId: number,
+  ) => {
+    setSelectedTeam({ id: teamId, name: teamName, leagueId });
   };
 
   return (
@@ -304,7 +309,11 @@ export function FootballScoresTable({
                 <TableCell className="text-left">
                   <button
                     onClick={() =>
-                      handleTeamClick(score.home.id, score.home.name)
+                      handleTeamClick(
+                        score.home.id,
+                        score.home.name,
+                        score.league.id,
+                      )
                     }
                     className="flex items-center text-left text-blue-600 hover:underline"
                   >
@@ -325,7 +334,11 @@ export function FootballScoresTable({
                 <TableCell className="text-left">
                   <button
                     onClick={() =>
-                      handleTeamClick(score.away.id, score.away.name)
+                      handleTeamClick(
+                        score.away.id,
+                        score.away.name,
+                        score.league.id,
+                      )
                     }
                     className="flex items-center text-left text-blue-600 hover:underline"
                   >
@@ -514,8 +527,7 @@ export function FootballScoresTable({
         isOpen={!!selectedTeam}
         onClose={() => setSelectedTeam(null)}
         teamId={selectedTeam?.id || 0}
-        leagueId={1}
-        season={2023}
+        leagueId={selectedTeam?.leagueId || 0}
       />
     </div>
   );
