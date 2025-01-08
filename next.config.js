@@ -5,6 +5,18 @@
 import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
-const config = {};
+const config = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "media.api-sports.io",
+        // port: "",
+        // pathname: "/account123/**",
+        // search: "",
+      },
+    ],
+  },
+};
 
 export default config;
