@@ -115,34 +115,34 @@ export function FootballScoresTable({
     return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
   };
 
-  const getForecast = (rowNumber: number): string => {
+  const getForecast = React.useCallback((rowNumber: number): string => {
     const forecastItem = rowForecastMap.find(
       (item) => item.rowNumber === rowNumber % 175,
     );
     return forecastItem ? forecastItem.forecast : "";
-  };
+  }, []);
 
-  const isForecastCorrect = (
-    score: FootballScore["score"],
-    forecast: string,
-  ): boolean => {
-    if (score.home === null || score.away === null) return false;
+  const isForecastCorrect = React.useCallback(
+    (score: FootballScore["score"], forecast: string): boolean => {
+      if (score.home === null || score.away === null) return false;
 
-    const homeWin = score.home > score.away;
-    const awayWin = score.home < score.away;
-    const draw = score.home === score.away;
+      const homeWin = score.home > score.away;
+      const awayWin = score.home < score.away;
+      const draw = score.home === score.away;
 
-    switch (forecast) {
-      case "1/X":
-        return homeWin || draw;
-      case "1/2":
-        return homeWin || awayWin;
-      case "X/2":
-        return draw || awayWin;
-      default:
-        return false;
-    }
-  };
+      switch (forecast) {
+        case "1/X":
+          return homeWin || draw;
+        case "1/2":
+          return homeWin || awayWin;
+        case "X/2":
+          return draw || awayWin;
+        default:
+          return false;
+      }
+    },
+    [],
+  );
 
   const getForecastCellStyle = (
     score: FootballScore["score"],
@@ -157,25 +157,30 @@ export function FootballScoresTable({
     };
   };
 
-  const calculateForecastCounts = (
-    scores: FootballScore[],
-  ): { correct: number; incorrect: number } => {
-    let correct = 0;
-    let incorrect = 0;
+  const calculateForecastCounts = React.useCallback(
+    (scores: FootballScore[]): { correct: number; incorrect: number } => {
+      let correct = 0;
+      let incorrect = 0;
 
-    scores.forEach((score) => {
-      const forecast = getForecast(score.rowNumber);
-      if (forecast && score.score.home !== null && score.score.away !== null) {
-        if (isForecastCorrect(score.score, forecast)) {
-          correct++;
-        } else {
-          incorrect++;
+      scores.forEach((score) => {
+        const forecast = getForecast(score.rowNumber);
+        if (
+          forecast &&
+          score.score.home !== null &&
+          score.score.away !== null
+        ) {
+          if (isForecastCorrect(score.score, forecast)) {
+            correct++;
+          } else {
+            incorrect++;
+          }
         }
-      }
-    });
+      });
 
-    return { correct, incorrect };
-  };
+      return { correct, incorrect };
+    },
+    [getForecast, isForecastCorrect],
+  );
 
   const calculateWinRate = (): number => {
     const total = correctForecasts + incorrectForecasts;
@@ -183,39 +188,44 @@ export function FootballScoresTable({
     return (correctForecasts / total) * 100;
   };
 
-  const updateForecastHistory = async (
-    scores: FootballScore[],
-  ): Promise<void> => {
-    const newHistory: ForecastHistory = { ...forecastHistory };
-    for (const score of scores) {
-      const forecast = getForecast(score.rowNumber);
-      if (forecast && score.score.home !== null && score.score.away !== null) {
-        const isCorrect = isForecastCorrect(score.score, forecast);
+  const updateForecastHistory = React.useCallback(
+    async (scores: FootballScore[]): Promise<void> => {
+      const newHistory: ForecastHistory = { ...forecastHistory };
+      for (const score of scores) {
+        const forecast = getForecast(score.rowNumber);
+        if (
+          forecast &&
+          score.score.home !== null &&
+          score.score.away !== null
+        ) {
+          const isCorrect = isForecastCorrect(score.score, forecast);
 
-        // Save to database
-        try {
-          await fetch("/api/forecast-history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rowNumber: score.rowNumber, isCorrect }),
-          });
-        } catch (error) {
-          console.error("Error saving forecast history:", error);
-        }
+          // Save to database
+          try {
+            await fetch("/api/forecast-history", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ rowNumber: score.rowNumber, isCorrect }),
+            });
+          } catch (error) {
+            console.error("Error saving forecast history:", error);
+          }
 
-        // Update local state
-        if (!newHistory[score.rowNumber]) {
-          newHistory[score.rowNumber] = [];
-        }
-        newHistory[score.rowNumber]!.push(isCorrect);
-        // Keep only the last 3 states
-        if (newHistory[score.rowNumber]!.length > 3) {
-          newHistory[score.rowNumber]!.shift();
+          // Update local state
+          if (!newHistory[score.rowNumber]) {
+            newHistory[score.rowNumber] = [];
+          }
+          newHistory[score.rowNumber]!.push(isCorrect);
+          // Keep only the last 3 states
+          if (newHistory[score.rowNumber]!.length > 3) {
+            newHistory[score.rowNumber]!.shift();
+          }
         }
       }
-    }
-    setForecastHistory(newHistory);
-  };
+      setForecastHistory(newHistory);
+    },
+    [forecastHistory, getForecast, isForecastCorrect],
+  );
 
   const fetchForecastHistory = async (
     rowNumber: number,
@@ -260,33 +270,36 @@ export function FootballScoresTable({
     });
 
     // Set up interval to update scores
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch("/api/football-scores");
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const updatedScores: FootballScore[] = await response.json();
-        const sortedUpdatedScores = updatedScores.sort(sortMatches);
-        setScores(sortedUpdatedScores);
+    const interval = setInterval(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/football-scores");
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const updatedScores: FootballScore[] =
+            (await response.json()) as FootballScore[];
+          const sortedUpdatedScores = updatedScores.sort(sortMatches);
+          setScores(sortedUpdatedScores);
 
-        // Recalculate forecast counts
-        const { correct, incorrect } =
-          calculateForecastCounts(sortedUpdatedScores);
-        setCorrectForecasts(correct);
-        setIncorrectForecasts(incorrect);
+          // Recalculate forecast counts
+          const { correct, incorrect } =
+            calculateForecastCounts(sortedUpdatedScores);
+          setCorrectForecasts(correct);
+          setIncorrectForecasts(incorrect);
 
-        // Update forecast history
-        await updateForecastHistory(sortedUpdatedScores);
-      } catch (error) {
-        console.error("Error updating scores:", error);
-        if (error instanceof Error) {
-          console.error("Error message:", error.message);
-          setError(`Failed to update scores: ${error.message}`);
-        } else {
-          setError("An unknown error occurred while updating scores");
+          // Update forecast history
+          await updateForecastHistory(sortedUpdatedScores);
+        } catch (error) {
+          console.error("Error updating scores:", error);
+          if (error instanceof Error) {
+            console.error("Error message:", error.message);
+            setError(`Failed to update scores: ${error.message}`);
+          } else {
+            setError("An unknown error occurred while updating scores");
+          }
         }
-      }
+      })();
     }, 60000); // Update every minute
 
     return () => clearInterval(interval);
