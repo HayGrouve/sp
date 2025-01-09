@@ -33,7 +33,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  const body = (await request.json()) as {
+    rowNumber: number;
+    isCorrect: boolean;
+  };
   const { rowNumber, isCorrect } = body;
 
   if (typeof rowNumber !== "number" || typeof isCorrect !== "boolean") {
