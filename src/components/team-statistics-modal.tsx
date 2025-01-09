@@ -50,27 +50,27 @@ export function TeamStatisticsModal({
     );
   };
 
-  const fetchStatistics = async (season: number) => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(
-        `/api/team-statistics?teamId=${teamId}&leagueId=${leagueId}&season=${season}`,
-      );
-      if (!response.ok) {
-        throw new Error("Failed to fetch team statistics");
-      }
-      const data = await response.json();
-      setStatistics(data);
-    } catch (err) {
-      console.error("Error fetching team statistics:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchStatistics = async (season: number) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(
+          `/api/team-statistics?teamId=${teamId}&leagueId=${leagueId}&season=${season}`,
+        );
+        if (!response.ok) {
+          throw new Error("Failed to fetch team statistics");
+        }
+        const data = (await response.json()) as TeamStatistics;
+        setStatistics(data);
+      } catch (err) {
+        console.error("Error fetching team statistics:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     if (isOpen && teamId && leagueId) {
-      fetchStatistics(selectedSeason);
+      void fetchStatistics(selectedSeason);
     }
   }, [isOpen, teamId, leagueId, selectedSeason]);
 
