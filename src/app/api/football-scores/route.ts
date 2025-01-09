@@ -1,18 +1,80 @@
 import { NextResponse } from "next/server";
 import { FootballScore } from "@/types/football-scores";
 
+interface ApiFixture {
+  fixture: {
+    id: number;
+    date: string;
+    status: {
+      long: string;
+      short: string;
+      elapsed: number | null;
+    };
+  };
+  league: {
+    id: number;
+    name: string;
+    country: string;
+    logo: string;
+    flag: string;
+    season: number;
+    round: string;
+  };
+  teams: {
+    home: {
+      id: number;
+      name: string;
+      logo: string;
+      winner: boolean | null;
+    };
+    away: {
+      id: number;
+      name: string;
+      logo: string;
+      winner: boolean | null;
+    };
+  };
+  goals: {
+    home: number | null;
+    away: number | null;
+  };
+}
+
+interface ApiResponse {
+  response: ApiFixture[];
+}
+
+interface OddsValue {
+  value: string;
+  odd: string;
+}
+
+interface OddsBet {
+  values: OddsValue[];
+}
+
+interface OddsBookmaker {
+  bets: OddsBet[];
+}
+
+interface OddsResponse {
+  response: Array<{
+    bookmakers: OddsBookmaker[];
+  }>;
+}
+
 const SOFIA_TIMEZONE = "Europe/Sofia";
 
-function getSofiaTime() {
+function getSofiaTime(): string {
   return new Date().toLocaleString("en-US", { timeZone: SOFIA_TIMEZONE });
 }
 
-function getDateRange() {
+function getDateRange(): string[] {
   const sofiaTime = new Date(getSofiaTime());
   const dayOfWeek = sofiaTime.getDay();
   const hour = sofiaTime.getHours();
 
-  let startDay, endDay;
+  let startDay: number, endDay: number;
 
   if (
     (dayOfWeek === 6 && hour >= 10) ||
@@ -28,11 +90,11 @@ function getDateRange() {
     endDay = 5;
   }
 
-  const dates = [];
+  const dates: string[] = [];
   for (let i = startDay; i <= endDay; i++) {
     const date = new Date(sofiaTime);
     date.setDate(sofiaTime.getDate() - sofiaTime.getDay() + i);
-    dates.push(date.toISOString().split("T")[0]);
+    dates.push(date.toISOString().split("T")[0]!);
   }
 
   return dates;
@@ -59,26 +121,28 @@ export async function GET(request: Request) {
   const options = {
     method: "GET",
     headers: {
-      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY as string,
+      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY!,
       "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
     },
   };
 
   try {
     const responses = await Promise.all(urls.map((url) => fetch(url, options)));
-    const results = await Promise.all(responses.map((res) => res.json()));
+    const results: ApiResponse[] = await Promise.all(
+      responses.map((res) => res.json() as Promise<ApiResponse>),
+    );
 
-    let allFixtures: any[] = [];
+    let allFixtures: (ApiFixture & { day: string })[] = [];
     results.forEach((result, index) => {
       if (result.response && Array.isArray(result.response)) {
-        const filteredFixtures = result.response.filter((fixture: any) =>
+        const filteredFixtures = result.response.filter((fixture: ApiFixture) =>
           leagueIdsArray.includes(fixture.league.id),
         );
         allFixtures = [
           ...allFixtures,
-          ...filteredFixtures.map((fixture: any) => ({
+          ...filteredFixtures.map((fixture: ApiFixture) => ({
             ...fixture,
-            day: new Date(dateRange[index]).toLocaleDateString("en-US", {
+            day: new Date(dateRange[index] ?? "").toLocaleDateString("en-US", {
               weekday: "long",
               month: "short",
               day: "numeric",
@@ -97,23 +161,29 @@ export async function GET(request: Request) {
     }
 
     // Fetch odds for all fixtures
-    const oddsPromises = allFixtures.map((fixture: any) =>
+    const oddsPromises = allFixtures.map((fixture) =>
       fetch(
         `https://api-football-v1.p.rapidapi.com/v3/odds?fixture=${fixture.fixture.id}&bookmaker=6`,
         options,
-      ).then((res) => res.json()),
+      ).then((res) => res.json() as Promise<OddsResponse>),
     );
 
     const oddsResults = await Promise.all(oddsPromises);
 
     const allScores: FootballScore[] = allFixtures
-      .map((fixture: any, index: number) => {
+      .map((fixture, index) => {
         const oddsData =
-          oddsResults[index].response[0]?.bookmakers[0]?.bets[0]?.values || [];
+          oddsResults[index]!.response[0]?.bookmakers[0]?.bets[0]?.values ?? [];
         const odds = {
-          home: oddsData.find((odd: any) => odd.value === "Home")?.odd || null,
-          draw: oddsData.find((odd: any) => odd.value === "Draw")?.odd || null,
-          away: oddsData.find((odd: any) => odd.value === "Away")?.odd || null,
+          home:
+            oddsData.find((odd: OddsValue) => odd.value === "Home")?.odd ??
+            null,
+          draw:
+            oddsData.find((odd: OddsValue) => odd.value === "Draw")?.odd ??
+            null,
+          away:
+            oddsData.find((odd: OddsValue) => odd.value === "Away")?.odd ??
+            null,
         };
 
         return {
