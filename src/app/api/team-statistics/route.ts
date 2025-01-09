@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const teamId = searchParams.get("teamId");
   const leagueId = searchParams.get("leagueId");
   const season =
-    searchParams.get("season") || (new Date().getFullYear() - 1).toString();
+    searchParams.get("season") ?? (new Date().getFullYear() - 1).toString();
 
   if (!teamId || !leagueId) {
     return NextResponse.json(
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(url, options);
-    const result = await response.json();
+    const result = (await response.json()) as { response: TeamStatistics };
 
     if (!result.response || Object.keys(result.response).length === 0) {
       return NextResponse.json(
