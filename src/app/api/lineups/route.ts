@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(url, options);
-    const result = await response.json();
+    const result = (await response.json()) as { response: Lineup[] };
 
     if (!result.response || result.response.length === 0) {
       return NextResponse.json(
