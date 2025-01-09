@@ -33,7 +33,7 @@ export function PredictionModal({
           setPrediction(data);
           setIsLoading(false);
         })
-        .catch((err) => {
+        .catch(() => {
           setError("Failed to fetch prediction");
           setIsLoading(false);
         });

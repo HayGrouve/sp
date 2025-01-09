@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import {
   Dialog,
   DialogContent,
@@ -104,10 +105,11 @@ export function TeamStatisticsModal({
         {isLoading && <p>Loading team statistics...</p>}
         {statistics && (
           <div className="space-y-4">
-            <h2 className="text-2xl font-bold">{statistics.team.name}</h2>
-            <img
+            <Image
               src={statistics.team.logo}
               alt={`${statistics.team.name} logo`}
+              width={64}
+              height={64}
               className="h-16 w-16"
             />
             {isStatisticsEmpty(statistics) ? (
