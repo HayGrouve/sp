@@ -32,7 +32,9 @@ export default function FootballScoresPage() {
       if (!response.ok) {
         throw new Error("Failed to fetch scores");
       }
-      const data = await response.json();
+      const data = (await response.json()) as
+        | FootballScore[]
+        | { error: string };
       if (Array.isArray(data)) {
         if (pageNumber === 1) {
           setScores(data);
@@ -40,7 +42,7 @@ export default function FootballScoresPage() {
           setScores((prevScores) => [...prevScores, ...data]);
         }
         setHasMore(data.length === itemsPerPage);
-      } else if (data.error) {
+      } else if ("error" in data) {
         throw new Error(data.error);
       } else {
         throw new Error("Unexpected response format");
@@ -61,11 +63,13 @@ export default function FootballScoresPage() {
   };
 
   useEffect(() => {
-    fetchScores(page);
+    void fetchScores(page);
   }, [page]);
 
   useEffect(() => {
-    const interval = setInterval(() => fetchScores(1), 60000); // Refresh every minute
+    const interval = setInterval(() => {
+      void fetchScores(1);
+    }, 60000); // Refresh every minute
     return () => clearInterval(interval);
   }, []);
 
