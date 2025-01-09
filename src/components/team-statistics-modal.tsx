@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TeamStatistics } from "@/types/football-scores";
+import { type TeamStatistics } from "@/types/football-scores";
 
 interface TeamStatisticsModalProps {
   isOpen: boolean;

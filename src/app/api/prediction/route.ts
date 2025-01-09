@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Prediction } from "@/types/football-scores";
+import { type Prediction } from "@/types/football-scores";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

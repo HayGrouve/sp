@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Lineup } from "@/types/football-scores";
+import { type Lineup } from "@/types/football-scores";
 
 interface LineupsModalProps {
   isOpen: boolean;

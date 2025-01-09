@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { TeamStatistics } from "@/types/football-scores";
+import { type TeamStatistics } from "@/types/football-scores";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const options = {
     method: "GET",
     headers: {
-      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY as string,
+      "X-RapidAPI-Key": process.env.RAPIDAPI_KEY!,
       "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
     },
   };

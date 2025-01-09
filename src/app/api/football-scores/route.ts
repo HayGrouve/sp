@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { FootballScore } from "@/types/football-scores";
+import { type FootballScore } from "@/types/football-scores";
 
 interface ApiFixture {
   fixture: {

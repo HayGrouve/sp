@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Event } from "@/types/football-scores";
+import { type Event } from "@/types/football-scores";
 
 interface EventsModalProps {
   isOpen: boolean;

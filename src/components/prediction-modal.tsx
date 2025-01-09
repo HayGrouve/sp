@@ -6,7 +6,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Prediction } from "@/types/football-scores";
+import { type Prediction } from "@/types/football-scores";
 
 interface PredictionModalProps {
   isOpen: boolean;
