@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { forecastHistory } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { db } from "../../../server/db";
+import { forecastHistory } from "../../../server/db/schema";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

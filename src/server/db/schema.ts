@@ -35,9 +35,20 @@ export const posts = createTable(
   }),
 );
 
-// export const forecastHistory = sqliteTable('forecast_history', {
-//   id: integer('id').primaryKey(),
-//   rowNumber: integer('row_number').notNull(),
-//   isCorrect: integer('is_correct').notNull(),
-//   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`CURRENT_TIMESTAMP`),
-// });
+export const forecastHistory = createTable(
+  "forecast_history",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    rowNumber: integer("row_number").notNull(),
+    isCorrect: integer("is_correct").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).$onUpdate(
+      () => new Date(),
+    ),
+  },
+  (example) => ({
+    rowNumberIndex: index("row_number_idx").on(example.rowNumber),
+  }),
+);
