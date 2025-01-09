@@ -2,6 +2,7 @@ export interface FootballScore {
   rowNumber: number;
   fixtureId: number;
   startTime: string;
+  day: string;
   status: {
     long: string;
     short: string;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Event } from "@/types/football-scores";
+import type { Event } from "@/types/football-scores";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

@@ -22,7 +22,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { FootballScore } from "@/types/football-scores";
+import type { FootballScore } from "@/types/football-scores";
 import { PredictionModal } from "./prediction-modal";
 import { StatisticsModal } from "./statistics-modal";
 import { LineupsModal } from "./lineups-modal";
@@ -86,7 +86,7 @@ export function FootballScoresTable({
   const [incorrectForecasts, setIncorrectForecasts] = useState(0);
   const [forecastHistory, setForecastHistory] = useState<ForecastHistory>({});
 
-  const formatTime = (isoString: string) => {
+  const formatTime = (isoString: string): string => {
     const date = new Date(isoString);
     const sofiaTime = new Date(
       date.toLocaleString("en-US", { timeZone: "Europe/Sofia" }),
@@ -101,7 +101,7 @@ export function FootballScoresTable({
   const getScoreDisplay = (
     score: FootballScore["score"],
     status: FootballScore["status"],
-  ) => {
+  ): string => {
     if (status.short === "FT") {
       return `${score.home} - ${score.away}`;
     }
@@ -111,11 +111,11 @@ export function FootballScoresTable({
     return status.short;
   };
 
-  const sortMatches = (a: FootballScore, b: FootballScore) => {
+  const sortMatches = (a: FootballScore, b: FootballScore): number => {
     return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
   };
 
-  const getForecast = (rowNumber: number) => {
+  const getForecast = (rowNumber: number): string => {
     const forecastItem = rowForecastMap.find(
       (item) => item.rowNumber === rowNumber % 175,
     );
@@ -125,7 +125,7 @@ export function FootballScoresTable({
   const isForecastCorrect = (
     score: FootballScore["score"],
     forecast: string,
-  ) => {
+  ): boolean => {
     if (score.home === null || score.away === null) return false;
 
     const homeWin = score.home > score.away;
@@ -147,7 +147,7 @@ export function FootballScoresTable({
   const getForecastCellStyle = (
     score: FootballScore["score"],
     forecast: string,
-  ) => {
+  ): React.CSSProperties => {
     if (score.home === null || score.away === null) return {};
 
     return {
@@ -157,7 +157,9 @@ export function FootballScoresTable({
     };
   };
 
-  const calculateForecastCounts = (scores: FootballScore[]) => {
+  const calculateForecastCounts = (
+    scores: FootballScore[],
+  ): { correct: number; incorrect: number } => {
     let correct = 0;
     let incorrect = 0;
 
@@ -175,13 +177,15 @@ export function FootballScoresTable({
     return { correct, incorrect };
   };
 
-  const calculateWinRate = () => {
+  const calculateWinRate = (): number => {
     const total = correctForecasts + incorrectForecasts;
     if (total === 0) return 0;
     return (correctForecasts / total) * 100;
   };
 
-  const updateForecastHistory = async (scores: FootballScore[]) => {
+  const updateForecastHistory = async (
+    scores: FootballScore[],
+  ): Promise<void> => {
     const newHistory: ForecastHistory = { ...forecastHistory };
     for (const score of scores) {
       const forecast = getForecast(score.rowNumber);
@@ -203,17 +207,19 @@ export function FootballScoresTable({
         if (!newHistory[score.rowNumber]) {
           newHistory[score.rowNumber] = [];
         }
-        newHistory[score.rowNumber].push(isCorrect);
+        newHistory[score.rowNumber]!.push(isCorrect);
         // Keep only the last 3 states
-        if (newHistory[score.rowNumber].length > 3) {
-          newHistory[score.rowNumber].shift();
+        if (newHistory[score.rowNumber]!.length > 3) {
+          newHistory[score.rowNumber]!.shift();
         }
       }
     }
     setForecastHistory(newHistory);
   };
 
-  const fetchForecastHistory = async (rowNumber: number) => {
+  const fetchForecastHistory = async (
+    rowNumber: number,
+  ): Promise<boolean[]> => {
     try {
       const response = await fetch(
         `/api/forecast-history?rowNumber=${rowNumber}`,
@@ -221,7 +227,7 @@ export function FootballScoresTable({
       if (!response.ok) {
         throw new Error("Failed to fetch forecast history");
       }
-      const history = await response.json();
+      const history: boolean[] = (await response.json()) as boolean[];
       return history;
     } catch (error) {
       console.error("Error fetching forecast history:", error);
@@ -249,7 +255,9 @@ export function FootballScoresTable({
       }
       setForecastHistory(newHistory);
     };
-    fetchInitialHistory();
+    fetchInitialHistory().catch((error) => {
+      console.error("Error fetching initial forecast history:", error);
+    });
 
     // Set up interval to update scores
     const interval = setInterval(async () => {
@@ -282,12 +290,12 @@ export function FootballScoresTable({
     }, 60000); // Update every minute
 
     return () => clearInterval(interval);
-  }, [initialScores]);
+  }, [calculateForecastCounts, initialScores, updateForecastHistory]);
 
   const handleOptionClick = (
     fixtureId: number,
     type: "prediction" | "statistics" | "lineups" | "events",
-  ) => {
+  ): void => {
     setSelectedFixtureId(fixtureId);
     setModalType(type);
   };
@@ -296,7 +304,7 @@ export function FootballScoresTable({
     teamId: number,
     teamName: string,
     leagueId: number,
-  ) => {
+  ): void => {
     setSelectedTeam({ id: teamId, name: teamName, leagueId });
   };
 
@@ -374,7 +382,7 @@ export function FootballScoresTable({
         <TableBody>
           {scores.map((score, index) => (
             <React.Fragment key={score.fixtureId}>
-              {(index === 0 || score.day !== scores[index - 1].day) && (
+              {(index === 0 || score.day !== scores[index - 1]?.day) && (
                 <TableRow key={`day-${score.day}-${score.fixtureId}`}>
                   <TableCell
                     colSpan={12}
@@ -465,7 +473,7 @@ export function FootballScoresTable({
                           Forecast History:
                         </span>
                         <ForecastHistoryDots
-                          history={forecastHistory[score.rowNumber] || []}
+                          history={forecastHistory[score.rowNumber] ?? []}
                         />
                       </div>
                     </PopoverContent>
@@ -603,28 +611,28 @@ export function FootballScoresTable({
       <PredictionModal
         isOpen={modalType === "prediction"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId || 0}
+        fixtureId={selectedFixtureId ?? 0}
       />
       <StatisticsModal
         isOpen={modalType === "statistics"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId || 0}
+        fixtureId={selectedFixtureId ?? 0}
       />
       <LineupsModal
         isOpen={modalType === "lineups"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId || 0}
+        fixtureId={selectedFixtureId ?? 0}
       />
       <EventsModal
         isOpen={modalType === "events"}
         onClose={() => setModalType(null)}
-        fixtureId={selectedFixtureId || 0}
+        fixtureId={selectedFixtureId ?? 0}
       />
       <TeamStatisticsModal
         isOpen={!!selectedTeam}
         onClose={() => setSelectedTeam(null)}
-        teamId={selectedTeam?.id || 0}
-        leagueId={selectedTeam?.leagueId || 0}
+        teamId={selectedTeam?.id ?? 0}
+        leagueId={selectedTeam?.leagueId ?? 0}
       />
     </div>
   );
