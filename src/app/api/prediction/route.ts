@@ -23,7 +23,15 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(url, options);
-    const result = await response.json();
+    const result = (await response.json()) as {
+      response: Array<{
+        teams: { home: { name: string }; away: { name: string } };
+        predictions: {
+          winner: { name: string };
+          percent: { home: number; away: number; draw: number };
+        };
+      }>;
+    };
 
     if (!result.response || result.response.length === 0) {
       return NextResponse.json(
@@ -33,13 +41,19 @@ export async function GET(request: Request) {
     }
 
     const predictionData = result.response[0];
+    if (!predictionData) {
+      return NextResponse.json(
+        { error: "Prediction data is undefined" },
+        { status: 500 },
+      );
+    }
     const prediction: Prediction = {
       home: predictionData.teams.home.name,
       away: predictionData.teams.away.name,
       prediction: predictionData.predictions.winner.name,
-      winPercentHome: predictionData.predictions.percent.home,
-      winPercentAway: predictionData.predictions.percent.away,
-      winPercentDraw: predictionData.predictions.percent.draw,
+      winPercentHome: String(predictionData.predictions.percent.home),
+      winPercentAway: String(predictionData.predictions.percent.away),
+      winPercentDraw: String(predictionData.predictions.percent.draw),
     };
 
     return NextResponse.json(prediction);
