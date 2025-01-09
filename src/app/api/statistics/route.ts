@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(url, options);
-    const result = await response.json();
+    const result = (await response.json()) as { response: Statistics[] };
 
     if (
       !result.response ||
