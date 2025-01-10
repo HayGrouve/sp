@@ -77,17 +77,18 @@ function getDateRange(): string[] {
   let startDay: number, endDay: number;
 
   if (
-    (dayOfWeek === 6 && hour >= 10) ||
-    (dayOfWeek >= 0 && dayOfWeek <= 2) ||
-    (dayOfWeek === 3 && hour < 10)
+    (dayOfWeek === 6 && hour >= 10) || // Saturday 10:00 or later
+    dayOfWeek === 0 || // Sunday
+    dayOfWeek === 1 || // Monday
+    (dayOfWeek === 2 && hour < 10) // Tuesday before 10:00
   ) {
-    // Saturday 10:00 or later, or Sunday through Tuesday, or Wednesday before 10:00
-    startDay = dayOfWeek === 6 && hour >= 10 ? 0 : dayOfWeek;
-    endDay = 2;
+    // Saturday 10:00 or later, or Sunday, or Monday, or Tuesday before 10:00
+    startDay = 6; // Saturday
+    endDay = 1; // Monday
   } else {
-    // Wednesday 10:00 or later, or Thursday through Friday
-    startDay = 3;
-    endDay = 5;
+    // Tuesday 10:00 or later, or Wednesday, or Thursday, or Friday
+    startDay = 2; // Tuesday
+    endDay = 5; // Friday
   }
 
   const dates: string[] = [];
