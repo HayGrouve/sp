@@ -255,20 +255,6 @@ export function FootballScoresTable({
     setCorrectForecasts(correct);
     setIncorrectForecasts(incorrect);
 
-    // Fetch initial forecast history
-    const fetchInitialHistory = async () => {
-      const newHistory: ForecastHistory = {};
-      for (const score of sortedScores) {
-        newHistory[score.rowNumber] = await fetchForecastHistory(
-          score.rowNumber,
-        );
-      }
-      setForecastHistory(newHistory);
-    };
-    fetchInitialHistory().catch((error) => {
-      console.error("Error fetching initial forecast history:", error);
-    });
-
     // Set up interval to update scores
     const interval = setInterval(() => {
       void (async () => {
@@ -304,6 +290,22 @@ export function FootballScoresTable({
 
     return () => clearInterval(interval);
   }, [calculateForecastCounts, initialScores, updateForecastHistory]);
+
+  useEffect(() => {
+    // Fetch initial forecast history
+    const fetchInitialHistory = async () => {
+      const newHistory: ForecastHistory = {};
+      for (const forecast of rowForecastMap) {
+        newHistory[forecast.rowNumber] = await fetchForecastHistory(
+          forecast.rowNumber,
+        );
+      }
+      setForecastHistory(newHistory);
+    };
+    fetchInitialHistory().catch((error) => {
+      console.error("Error fetching initial forecast history:", error);
+    });
+  }, []);
 
   const handleOptionClick = (
     fixtureId: number,

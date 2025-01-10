@@ -18,16 +18,13 @@ export default function FootballScoresPage() {
   const [scores, setScores] = useState<FootballScore[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const itemsPerPage = 20;
 
-  const fetchScores = async (pageNumber: number) => {
+  const fetchScores = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const response = await fetch(
-        `/api/football-scores?leagueIds=${LEAGUE_IDS.join(",")}&page=${pageNumber}&limit=${itemsPerPage}`,
+        `/api/football-scores?leagueIds=${LEAGUE_IDS.join(",")}`,
       );
       if (!response.ok) {
         throw new Error("Failed to fetch scores");
@@ -36,12 +33,7 @@ export default function FootballScoresPage() {
         | FootballScore[]
         | { error: string };
       if (Array.isArray(data)) {
-        if (pageNumber === 1) {
-          setScores(data);
-        } else {
-          setScores((prevScores) => [...prevScores, ...data]);
-        }
-        setHasMore(data.length === itemsPerPage);
+        setScores(data);
       } else if ("error" in data) {
         throw new Error(data.error);
       } else {
@@ -56,19 +48,13 @@ export default function FootballScoresPage() {
     }
   };
 
-  const loadMore = () => {
-    if (!isLoading && hasMore) {
-      setPage((prevPage) => prevPage + 1);
-    }
-  };
-
   useEffect(() => {
-    void fetchScores(page);
-  }, [page]);
+    void fetchScores();
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      void fetchScores(1);
+      void fetchScores();
     }, 60000); // Refresh every minute
     return () => clearInterval(interval);
   }, []);
@@ -77,7 +63,7 @@ export default function FootballScoresPage() {
     <div className="container mx-auto py-10">
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Football Scores</h1>
-        <Button onClick={() => fetchScores(1)} disabled={isLoading}>
+        <Button onClick={() => fetchScores()} disabled={isLoading}>
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -90,32 +76,8 @@ export default function FootballScoresPage() {
       </div>
       {error ? (
         <div className="text-center text-red-500">{error}</div>
-      ) : scores.length > 0 ? (
-        <>
-          <FootballScoresTable initialScores={scores} />
-          {hasMore && (
-            <div className="mt-4 text-center">
-              <Button onClick={loadMore} disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  "Load More"
-                )}
-              </Button>
-            </div>
-          )}
-        </>
       ) : (
-        <div className="text-center">
-          {isLoading ? (
-            <Loader2 className="mx-auto h-8 w-8 animate-spin" />
-          ) : (
-            "No matches scheduled for today in the selected leagues."
-          )}
-        </div>
+        <FootballScoresTable initialScores={scores} />
       )}
     </div>
   );
