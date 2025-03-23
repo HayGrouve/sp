@@ -202,11 +202,11 @@ export function FootballScoresTable({
 
           // Save to database
           try {
-            await fetch("/api/forecast-history", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ rowNumber: score.rowNumber, isCorrect }),
-            });
+            // await fetch("/api/forecast-history", {
+            //   method: "POST",
+            //   headers: { "Content-Type": "application/json" },
+            //   body: JSON.stringify({ rowNumber: score.rowNumber, isCorrect }),
+            // });
           } catch (error) {
             console.error("Error saving forecast history:", error);
           }
@@ -232,7 +232,8 @@ export function FootballScoresTable({
   ): Promise<boolean[]> => {
     try {
       const response = await fetch(
-        `/api/forecast-history?rowNumber=${rowNumber}`,
+        `/api/asd`,
+        // `/api/forecast-history?rowNumber=${rowNumber}`,
       );
       if (!response.ok) {
         throw new Error("Failed to fetch forecast history");
@@ -295,11 +296,11 @@ export function FootballScoresTable({
     // Fetch initial forecast history
     const fetchInitialHistory = async () => {
       const newHistory: ForecastHistory = {};
-      for (const forecast of rowForecastMap) {
-        newHistory[forecast.rowNumber] = await fetchForecastHistory(
-          forecast.rowNumber,
-        );
-      }
+      // for (const forecast of rowForecastMap) {
+      //   newHistory[forecast.rowNumber] = await fetchForecastHistory(
+      //     forecast.rowNumber,
+      //   );
+      // }
       setForecastHistory(newHistory);
     };
     fetchInitialHistory().catch((error) => {

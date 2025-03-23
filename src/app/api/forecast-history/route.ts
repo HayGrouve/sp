@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq, desc } from "drizzle-orm";
 import { db } from "../../../server/db";
-import { forecastHistory } from "../../../server/db/schema";
+import { forecastHistory } from "@/server/db";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -45,7 +45,9 @@ export async function POST(request: Request) {
 
   try {
     await db.insert(forecastHistory).values({
+      fixtureId: 1,
       rowNumber,
+      forecast: "default forecast",
       isCorrect: isCorrect ? 1 : 0,
     });
 

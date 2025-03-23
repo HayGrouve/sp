@@ -1,10 +1,10 @@
+// src/app/football-scores/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
 import { FootballScoresTable } from "@/components/football-scores-table";
-import type { FootballScore } from "@/types/football-scores";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
+import { useFootballScores } from "@/hooks/use-football-scores";
 
 // Array of league IDs
 const LEAGUE_IDS = [
@@ -15,55 +15,18 @@ const LEAGUE_IDS = [
 ];
 
 export default function FootballScoresPage() {
-  const [scores, setScores] = useState<FootballScore[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchScores = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `/api/football-scores?leagueIds=${LEAGUE_IDS.join(",")}`,
-      );
-      if (!response.ok) {
-        throw new Error("Failed to fetch scores");
-      }
-      const data = (await response.json()) as
-        | FootballScore[]
-        | { error: string };
-      if (Array.isArray(data)) {
-        setScores(data);
-      } else if ("error" in data) {
-        throw new Error(data.error);
-      } else {
-        throw new Error("Unexpected response format");
-      }
-    } catch (err) {
-      setError(
-        `An error occurred while fetching the scores: ${err instanceof Error ? err.message : "Unknown error"}`,
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void fetchScores();
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      void fetchScores();
-    }, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, []);
+  const {
+    data: scores,
+    isLoading,
+    error,
+    refetch,
+  } = useFootballScores(LEAGUE_IDS);
 
   return (
     <div className="container mx-auto py-10">
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Football Scores</h1>
-        <Button onClick={() => fetchScores()} disabled={isLoading}>
+        <Button onClick={() => refetch()} disabled={isLoading}>
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -75,9 +38,11 @@ export default function FootballScoresPage() {
         </Button>
       </div>
       {error ? (
-        <div className="text-center text-red-500">{error}</div>
+        <div className="text-center text-red-500">
+          {error instanceof Error ? error.message : "An error occurred"}
+        </div>
       ) : (
-        <FootballScoresTable initialScores={scores} />
+        <FootballScoresTable initialScores={scores ?? []} />
       )}
     </div>
   );
