@@ -54,7 +54,7 @@ export function PredictionModal({
         {prediction && (
           <div className="mt-4">
             <p>
-              <strong>{prediction.home}</strong> vs{" "}
+              <strong>{prediction.home}</strong> vs
               <strong>{prediction.away}</strong>
             </p>
             <p>Prediction: {prediction.prediction}</p>

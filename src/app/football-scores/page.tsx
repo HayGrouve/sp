@@ -4,9 +4,9 @@
 import { FootballScoresTable } from "@/components/football-scores-table";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { useFootballScores } from "@/hooks/use-football-scores";
+import { useFootballScores } from "@/hooks/use-football-scores"; // Assuming this hook fetches data
 
-// Array of league IDs
+// Array of league IDs (Consider moving to config/DB)
 const LEAGUE_IDS = [
   39, 40, 41, 42, 43, 49, 50, 51, 48, 45, 140, 556, 141, 135, 547, 136, 78, 79,
   529, 61, 62, 63, 66, 188, 179, 180, 183, 184, 103, 104, 113, 114, 94, 95, 119,
@@ -15,12 +15,22 @@ const LEAGUE_IDS = [
 ];
 
 export default function FootballScoresPage() {
+  // Assuming useFootballScores fetches data based on the current section
+  // It might internally call an API route that reads from the footballScores table
+  // populated by the cron job.
   const {
-    data: scores,
+    data: scores, // Renamed from data for clarity
     isLoading,
     error,
-    refetch,
-  } = useFootballScores(LEAGUE_IDS);
+    refetch, // Keep refetch for the manual refresh button
+  } = useFootballScores(LEAGUE_IDS); // Pass leagues if hook needs them
+
+  // Convert error object to string message if necessary
+  const errorMessage = error
+    ? error instanceof Error
+      ? error.message
+      : String(error)
+    : null;
 
   return (
     <div className="container mx-auto py-10">
@@ -33,17 +43,17 @@ export default function FootballScoresPage() {
               Refreshing...
             </>
           ) : (
-            "Refresh Scores"
+            "Refresh" // Shorter button text
           )}
         </Button>
       </div>
-      {error ? (
-        <div className="text-center text-red-500">
-          {error instanceof Error ? error.message : "An error occurred"}
-        </div>
-      ) : (
-        <FootballScoresTable initialScores={scores ?? []} />
-      )}
+
+      {/* Pass initialScores, isLoading, and error to the table */}
+      <FootballScoresTable
+        initialScores={scores ?? []}
+        isLoading={isLoading}
+        error={errorMessage}
+      />
     </div>
   );
 }

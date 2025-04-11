@@ -1,61 +1,106 @@
+// src/app/api/forecast-history/route.ts
 import { NextResponse } from "next/server";
-import { eq, desc } from "drizzle-orm";
-import { db } from "../../../server/db";
-import { forecastHistory } from "@/server/db";
+import { db } from "@/server/db";
+import { forecastHistory } from "@/server/db/index";
+import { inArray, desc, and } from "drizzle-orm";
+import { getISOWeek, startOfWeek, subWeeks, addDays } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const rowNumber = searchParams.get("rowNumber");
+const SOFIA_TIMEZONE = "Europe/Sofia";
+const WEEKEND_SECTION_TYPE = "SatMon"; // Identifier for the weekend section
+const HISTORY_WEEKS = 3; // Number of previous weekend sections to fetch
 
-  if (!rowNumber) {
-    return NextResponse.json(
-      { error: "Row number is required" },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const history = await db
-      .select()
-      .from(forecastHistory)
-      .where(eq(forecastHistory.rowNumber, parseInt(rowNumber)))
-      .orderBy(desc(forecastHistory.createdAt))
-      .limit(3);
-
-    return NextResponse.json(history.map((h) => h.isCorrect === 1));
-  } catch (error) {
-    console.error("Error fetching forecast history:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch forecast history" },
-      { status: 500 },
-    );
-  }
+// Helper to get current date object in Sofia timezone
+function getCurrentSofiaDate(): Date {
+  return toZonedTime(new Date(), SOFIA_TIMEZONE);
 }
 
-export async function POST(request: Request) {
-  const body = (await request.json()) as {
-    rowNumber: number;
-    isCorrect: boolean;
-  };
-  const { rowNumber, isCorrect } = body;
+/**
+ * Calculates the section IDs for the current and specified number of previous
+ * weekend (SatMon) sections.
+ */
+function getLastWeekendSectionIds(count: number): string[] {
+  const nowSofia = getCurrentSofiaDate();
+  const sectionIds: string[] = [];
 
-  if (typeof rowNumber !== "number" || typeof isCorrect !== "boolean") {
-    return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+  for (let i = 0; i < count; i++) {
+    const targetDate = subWeeks(nowSofia, i);
+    // Find the start of the week (Monday) containing the target date
+    const startOfTargetWeek = startOfWeek(targetDate, { weekStartsOn: 1 });
+    // Calculate the Saturday of that week cycle
+    const saturdayOfTargetWeek = addDays(startOfTargetWeek, 5);
+
+    const weekNumber = getISOWeek(saturdayOfTargetWeek);
+    const year = saturdayOfTargetWeek.getFullYear(); // Use year of the Saturday
+    const sectionId = `${year}-W${String(weekNumber).padStart(2, "0")}-${WEEKEND_SECTION_TYPE}`;
+    sectionIds.push(sectionId);
   }
+  return sectionIds;
+}
 
+export async function GET(request: Request) {
   try {
-    await db.insert(forecastHistory).values({
-      fixtureId: 1,
-      rowNumber,
-      forecast: "default forecast",
-      isCorrect: isCorrect ? 1 : 0,
-    });
+    console.log("API: Fetching forecast history...");
+    const relevantSectionIds = getLastWeekendSectionIds(HISTORY_WEEKS);
+    console.log(`API: Relevant section IDs: ${relevantSectionIds.join(", ")}`);
 
-    return NextResponse.json({ success: true });
+    if (!relevantSectionIds.length) {
+      console.log("API: No relevant section IDs found.");
+      return NextResponse.json({}); // Return empty object if no sections
+    }
+
+    // Fetch history data for the relevant sections
+    // Order by weekSectionId descending to get recent ones first if needed
+    const historyData = await db
+      .select({
+        rowNumber: forecastHistory.rowNumber,
+        isCorrect: forecastHistory.isCorrect,
+        weekSectionId: forecastHistory.weekSectionId,
+        // fixtureId: forecastHistory.fixtureId, // Include if needed
+        // createdAt: forecastHistory.createdAt, // Include if needed for sorting
+      })
+      .from(forecastHistory)
+      .where(
+        and(
+          inArray(forecastHistory.weekSectionId, relevantSectionIds),
+          // Only include entries where a result is known
+          // You might want nulls if you display pending checks differently
+          // eq(forecastHistory.isCorrect, true), or eq(forecastHistory.isCorrect, false)
+          // or isNotNull(forecastHistory.isCorrect)
+        ),
+      )
+      .orderBy(
+        desc(forecastHistory.weekSectionId),
+        desc(forecastHistory.createdAt),
+      ); // Sort by section then time
+
+    console.log(`API: Found ${historyData.length} history records.`);
+
+    // Group data by rowNumber for the frontend, keeping only the last 3 results per row
+    const groupedHistory: Record<
+      number,
+      { isCorrect: boolean | null; weekSectionId: string }[]
+    > = {};
+
+    for (const item of historyData) {
+      if (!groupedHistory[item.rowNumber]) {
+        groupedHistory[item.rowNumber] = [];
+      }
+      // Add to the group only if we haven't reached the limit of 3 per row
+      if (groupedHistory[item.rowNumber]!.length < HISTORY_WEEKS) {
+        groupedHistory[item.rowNumber]!.push({
+          isCorrect: item.isCorrect,
+          weekSectionId: item.weekSectionId,
+        });
+      }
+    }
+
+    console.log("API: Grouped history prepared.");
+    return NextResponse.json(groupedHistory);
   } catch (error) {
-    console.error("Error saving forecast history:", error);
+    console.error("API: Error fetching forecast history:", error);
     return NextResponse.json(
-      { error: "Failed to save forecast history" },
+      { message: "Failed to fetch forecast history" },
       { status: 500 },
     );
   }
