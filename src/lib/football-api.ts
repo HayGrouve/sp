@@ -1,5 +1,5 @@
 // src/lib/football-api.ts
-import { type FootballScore } from "@/types/football-scores";
+import { type FootballScore } from "@/types/football-scores"; // Assuming this path is correct
 import {
   getDay,
   startOfWeek,
@@ -14,12 +14,11 @@ import {
   parseISO,
   isBefore,
   isEqual,
-  getYear, // Added getYear import
+  getYear,
 } from "date-fns";
-// --- CHANGE HERE: Import toZonedTime instead of utcToZonedTime ---
 import { toZonedTime, format } from "date-fns-tz";
 
-// --- Interfaces for API response shapes (Keep these as they were) ---
+// --- Interfaces for API response shapes ---
 interface ApiFixture {
   fixture: {
     id: number;
@@ -81,23 +80,25 @@ interface OddsBookmaker {
 }
 
 interface OddsFixture {
-  fixture: { id: number };
+  fixture: { id: number }; // Ensure fixture ID is here
   bookmakers: OddsBookmaker[];
 }
 
 interface OddsResponse {
-  response: OddsFixture[];
+  response: OddsFixture[]; // Expecting an array of fixtures with their odds
 }
 // --- End of API Interfaces ---
 
+// --- Constants ---
 const SOFIA_TIMEZONE = "Europe/Sofia";
 const RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com";
 const MATCH_WINNER_BET_ID = 1; // Common ID for Match Winner odds
 const TARGET_BOOKMAKER_ID = 6; // Example: Betway (check API docs for IDs)
+// --- End Constants ---
 
+// --- Helper Functions ---
 // Helper to get current date object in Sofia timezone
 function getCurrentSofiaDate(): Date {
-  // --- CHANGE HERE: Use toZonedTime ---
   return toZonedTime(new Date(), SOFIA_TIMEZONE);
 }
 
@@ -154,7 +155,6 @@ export function getDateRange(): DateRangeInfo {
 
   // Create the section ID using the week number of the *start* date
   const weekNumber = getISOWeek(sectionStart);
-  // --- CHANGE HERE: Use getYear from date-fns ---
   const year = getYear(sectionStart);
   const sectionId = `${year}-W${String(weekNumber).padStart(
     2,
@@ -168,9 +168,11 @@ export function getDateRange(): DateRangeInfo {
     endDate: sectionEnd,
   };
 }
+// --- End Helper Functions ---
 
 /**
  * Fetches football scores and odds from RapidAPI for given leagues and date range.
+ * Uses date-based endpoints for both fixtures and odds to minimize API calls.
  * Assigns sequential row numbers after filtering and sorting.
  */
 export async function fetchFootballScores(
@@ -189,16 +191,15 @@ export async function fetchFootballScores(
     },
   };
 
-  // --- Fetch Fixtures ---
+  // --- Step 1: Fetch Fixtures by Date ---
   const fixtureUrls = dateRangeInfo.dates.map(
     (date) => `https://api-football-v1.p.rapidapi.com/v3/fixtures?date=${date}`,
   );
 
   console.log(`Fetching fixtures for dates: ${dateRangeInfo.dates.join(", ")}`);
+  const fixturePromises = fixtureUrls.map((url) => fetch(url, options));
+  const fixtureResponses = await Promise.all(fixturePromises);
 
-  const fixtureResponses = await Promise.all(
-    fixtureUrls.map((url) => fetch(url, options)),
-  );
   const fixtureResults: ApiResponse[] = await Promise.all(
     fixtureResponses.map(async (res, index) => {
       if (!res.ok) {
@@ -253,112 +254,123 @@ export async function fetchFootballScores(
     console.log("No matches found for the given leagues and dates.");
     return [];
   }
-  console.log(`Found ${allFixtures.length} initial fixtures.`);
-
-  // --- Fetch Odds (Consider batching if API supports it) ---
-  // Note: Fetching odds one by one can be slow and hit rate limits.
-  console.log(`Fetching odds for ${allFixtures.length} fixtures...`);
-  const oddsPromises = allFixtures.map((fixture) =>
-    fetch(
-      `https://api-football-v1.p.rapidapi.com/v3/odds?fixture=${fixture.fixture.id}&bookmaker=${TARGET_BOOKMAKER_ID}&bet=${MATCH_WINNER_BET_ID}`,
-      options,
-    )
-      .then(async (res) => {
-        if (!res.ok) {
-          console.error(
-            `Error fetching odds for fixture ${fixture.fixture.id}: ${res.status} ${res.statusText}`,
-          );
-          return null; // Return null on error
-        }
-        try {
-          return (await res.json()) as OddsResponse;
-        } catch (e) {
-          console.error(
-            `Error parsing odds JSON for fixture ${fixture.fixture.id}:`,
-            e,
-          );
-          return null; // Return null on JSON parse error
-        }
-      })
-      .catch((error) => {
-        console.error(
-          `Network error fetching odds for fixture ${fixture.fixture.id}:`,
-          error,
-        );
-        return null; // Return null on network error
-      }),
+  console.log(
+    `Found ${allFixtures.length} initial fixtures across ${dateRangeInfo.dates.length} dates.`,
   );
 
-  const oddsResults = await Promise.all(oddsPromises);
-  console.log("Finished fetching odds.");
+  // --- Step 2: Fetch Odds by Date ---
+  const oddsUrls = dateRangeInfo.dates.map(
+    // Fetch odds for the specific bookmaker and bet type for the whole date
+    (date) =>
+      `https://api-football-v1.p.rapidapi.com/v3/odds?date=${date}&bookmaker=${TARGET_BOOKMAKER_ID}&bet=${MATCH_WINNER_BET_ID}`,
+  );
 
-  // --- Combine Fixtures and Odds ---
-  const mappedAndFilteredScores = allFixtures
-    .map((fixture, index): FootballScore | null => {
-      // Return type includes null here
-      const oddsResult = oddsResults[index];
-      let odds: {
-        home: string | null;
-        draw: string | null;
-        away: string | null;
-      } = {
-        home: null,
-        draw: null,
-        away: null,
-      };
+  console.log(`Fetching odds for dates: ${dateRangeInfo.dates.join(", ")}`);
+  const oddsPromises = oddsUrls.map((url) => fetch(url, options));
+  const oddsResponses = await Promise.all(oddsPromises);
 
-      const bookmakerData = oddsResult?.response?.[0]?.bookmakers?.find(
-        (b) => b.id === TARGET_BOOKMAKER_ID,
-      );
-      const matchWinnerBet = bookmakerData?.bets?.find(
-        (bet) => bet.id === MATCH_WINNER_BET_ID,
-      );
-
-      if (matchWinnerBet?.values) {
-        odds = {
-          home:
-            matchWinnerBet.values.find((odd) => odd.value === "Home")?.odd ??
-            null,
-          draw:
-            matchWinnerBet.values.find((odd) => odd.value === "Draw")?.odd ??
-            null,
-          away:
-            matchWinnerBet.values.find((odd) => odd.value === "Away")?.odd ??
-            null,
-        };
+  const oddsResults: OddsResponse[] = await Promise.all(
+    oddsResponses.map(async (res, index) => {
+      if (!res.ok) {
+        // Log error but don't stop the process
+        console.error(
+          `Error fetching odds for date ${dateRangeInfo.dates[index]}: ${res.status} ${res.statusText}`,
+        );
+        const errorBody = await res.text();
+        console.error("Error body:", errorBody);
+        return { response: [] }; // Return empty response on error
       }
+      try {
+        return (await res.json()) as OddsResponse;
+      } catch (e) {
+        console.error(
+          `Error parsing odds JSON for date ${dateRangeInfo.dates[index]}:`,
+          e,
+        );
+        return { response: [] }; // Return empty response on JSON parse error
+      }
+    }),
+  );
 
-      if (!odds.home || !odds.draw || !odds.away) {
-        return null; // Indicate filtering needed
+  // --- Step 3: Process Odds into a Map for Efficient Lookup ---
+  const oddsMap = new Map<
+    number,
+    { home: string | null; draw: string | null; away: string | null }
+  >();
+  let oddsProcessedCount = 0;
+
+  oddsResults.forEach((result) => {
+    if (result.response && Array.isArray(result.response)) {
+      result.response.forEach((oddsFixture) => {
+        const fixtureId = oddsFixture.fixture.id;
+        // Find the target bookmaker (should be the only one if API call included it)
+        const bookmakerData = oddsFixture.bookmakers?.find(
+          (b) => b.id === TARGET_BOOKMAKER_ID,
+        );
+        // Find the target bet type (should be the only one if API call included it)
+        const matchWinnerBet = bookmakerData?.bets?.find(
+          (b) => b.id === MATCH_WINNER_BET_ID,
+        );
+
+        if (matchWinnerBet?.values) {
+          const homeOdd =
+            matchWinnerBet.values.find((v) => v.value === "Home")?.odd ?? null;
+          const drawOdd =
+            matchWinnerBet.values.find((v) => v.value === "Draw")?.odd ?? null;
+          const awayOdd =
+            matchWinnerBet.values.find((v) => v.value === "Away")?.odd ?? null;
+
+          // Only store if all three odds are present
+          if (homeOdd && drawOdd && awayOdd) {
+            oddsMap.set(fixtureId, {
+              home: homeOdd,
+              draw: drawOdd,
+              away: awayOdd,
+            });
+            oddsProcessedCount++;
+          }
+        }
+      });
+    }
+  });
+  console.log(`Processed odds for ${oddsProcessedCount} fixtures into map.`);
+
+  // --- Step 4: Combine Fixtures and Odds, Filter, Sort, and Assign Row Numbers ---
+  const combinedScores: FootballScore[] = allFixtures
+    .map((fixture): FootballScore | null => {
+      const fixtureId = fixture.fixture.id;
+      const fixtureOdds = oddsMap.get(fixtureId); // Efficient lookup
+
+      // Skip if odds weren't found or incomplete in the map
+      if (!fixtureOdds) {
+        // console.log(`Skipping fixture ${fixtureId} - odds not found in map.`);
+        return null;
       }
 
       // Construct the FootballScore object
       return {
         day: fixture.day,
         rowNumber: 0, // Placeholder
-        fixtureId: fixture.fixture.id,
+        fixtureId: fixtureId,
         startTime: fixture.fixture.date,
         status: fixture.fixture.status,
         home: fixture.teams.home,
         away: fixture.teams.away,
         score: fixture.goals,
         league: fixture.league,
-        odds,
+        odds: fixtureOdds, // Assign the looked-up odds
       };
     })
-    .filter((score): score is FootballScore => score !== null); // Type predicate correctly filters nulls
-
-  // Now assign the guaranteed FootballScore[] array
-  const combinedScores: FootballScore[] = mappedAndFilteredScores;
+    .filter((score): score is FootballScore => score !== null); // Filter out fixtures without odds
 
   console.log(`Combined ${combinedScores.length} fixtures with complete odds.`);
 
-  // --- Sort by Start Time ---
+  // Sort by Start Time
   combinedScores.sort(
     (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
   );
 
-  // --- Assign Final Row Numbers ---
+  // Assign Final Row Numbers
   combinedScores.forEach((score, index) => {
     score.rowNumber = index + 1;
   });
