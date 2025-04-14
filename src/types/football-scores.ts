@@ -171,6 +171,12 @@ export interface TeamStatistics {
 }
 
 export interface Odds {
+  home: string;
+  draw: string;
+  away: string;
+}
+
+export interface OddsNullable {
   home: string | null;
   draw: string | null;
   away: string | null;
