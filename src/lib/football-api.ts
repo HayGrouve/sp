@@ -120,31 +120,68 @@ export interface DateRangeInfo {
 export function getDateRange(): DateRangeInfo {
   const nowSofia = getCurrentSofiaDate();
   const currentDay = getDay(nowSofia); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const currentHour = getHours(nowSofia);
 
   let sectionStart: Date;
   let sectionEnd: Date;
   let sectionType: "SatMon" | "TueFri";
+  let referenceDateForWeek = nowSofia; // Use current date to determine the week
 
-  // Use Monday as the start of the week for calculations
-  const startOfCurrentWeek = startOfWeek(nowSofia, { weekStartsOn: 1 });
+  // Determine if we are in the Sat-Mon display window
+  const isSatMonWindow =
+    (currentDay === 6 && currentHour >= 10) || // Saturday 10:00 onwards
+    currentDay === 0 || // Sunday
+    currentDay === 1 || // Monday
+    (currentDay === 2 && currentHour < 10); // Tuesday before 10:00
 
-  // Determine if we are currently in the Sat-Mon period or Tue-Fri period
-  if (isSaturday(nowSofia) || isSunday(nowSofia) || isMonday(nowSofia)) {
-    // Currently Saturday, Sunday, or Monday -> Show Sat/Sun/Mon
+  if (isSatMonWindow) {
     sectionType = "SatMon";
-    sectionStart = addDays(startOfCurrentWeek, 5); // Saturday of this week cycle
-    sectionEnd = addDays(startOfCurrentWeek, 7); // Monday of this week cycle (end of day)
+    // Find the Saturday of the relevant week cycle
+    if (currentDay === 6 && currentHour >= 10) {
+      // It's Saturday >= 10:00, start is today
+      sectionStart = nowSofia;
+    } else if (currentDay === 0) {
+      // It's Sunday, start was yesterday
+      sectionStart = addDays(nowSofia, -1);
+    } else if (currentDay === 1) {
+      // It's Monday, start was 2 days ago
+      sectionStart = addDays(nowSofia, -2);
+    } else {
+      // It's Tuesday < 10:00, start was 3 days ago
+      sectionStart = addDays(nowSofia, -3);
+      // Adjust reference date for week calculation if needed (e.g., if Tue is start of ISO week)
+      referenceDateForWeek = sectionStart;
+    }
+    // End date is always the Monday of this cycle
+    sectionEnd = addDays(sectionStart, 2); // Saturday + 2 days = Monday
   } else {
-    // Currently Tuesday, Wednesday, Thursday, or Friday -> Show Tue/Wed/Thu/Fri
     sectionType = "TueFri";
-    sectionStart = addDays(startOfCurrentWeek, 1); // Tuesday of this week cycle
-    sectionEnd = addDays(startOfCurrentWeek, 4); // Friday of this week cycle
+    // Find the Tuesday of the relevant week cycle
+    if (currentDay === 2 && currentHour >= 10) {
+      // It's Tuesday >= 10:00, start is today
+      sectionStart = nowSofia;
+    } else if (currentDay === 3) {
+      // It's Wednesday, start was yesterday
+      sectionStart = addDays(nowSofia, -1);
+    } else if (currentDay === 4) {
+      // It's Thursday, start was 2 days ago
+      sectionStart = addDays(nowSofia, -2);
+    } else if (currentDay === 5) {
+      // It's Friday, start was 3 days ago
+      sectionStart = addDays(nowSofia, -3);
+    } else {
+      // It's Saturday < 10:00, start was 4 days ago
+      sectionStart = addDays(nowSofia, -4);
+      // Adjust reference date for week calculation
+      referenceDateForWeek = sectionStart;
+    }
+    // End date is always the Friday of this cycle
+    sectionEnd = addDays(sectionStart, 3); // Tuesday + 3 days = Friday
   }
 
   // Generate date strings (YYYY-MM-DD) for the section
   const dates: string[] = [];
   let currentDate = sectionStart;
-  // Loop from sectionStart up to and including sectionEnd
   while (
     isBefore(currentDate, sectionEnd) ||
     isEqual(currentDate, sectionEnd)
@@ -153,9 +190,10 @@ export function getDateRange(): DateRangeInfo {
     currentDate = addDays(currentDate, 1);
   }
 
-  // Create the section ID using the week number of the *start* date
-  const weekNumber = getISOWeek(sectionStart);
-  const year = getYear(sectionStart);
+  // Create the section ID using the week number of the reference date
+  // Using referenceDateForWeek ensures consistency if the section spans across ISO week boundaries
+  const weekNumber = getISOWeek(referenceDateForWeek);
+  const year = getYear(referenceDateForWeek);
   const sectionId = `${year}-W${String(weekNumber).padStart(
     2,
     "0",
@@ -164,7 +202,7 @@ export function getDateRange(): DateRangeInfo {
   return {
     dates: dates,
     sectionId: sectionId,
-    startDate: sectionStart,
+    startDate: sectionStart, // Keep returning Date objects if useful elsewhere
     endDate: sectionEnd,
   };
 }
