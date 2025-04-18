@@ -4,8 +4,8 @@
 import React from "react";
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
-import { format, startOfDay, isEqual as isDateEqual } from "date-fns"; // Import date-fns functions
-import { toZonedTime, format as formatTz } from "date-fns-tz"; // Use date-fns-tz for formatting
+import { format, startOfDay, isEqual as isDateEqual } from "date-fns";
+import { toZonedTime, format as formatTz } from "date-fns-tz";
 
 // Shadcn UI Components
 import {
@@ -16,13 +16,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+// Removed Accordion imports
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button"; // Keep buttonVariants if used elsewhere, otherwise remove
 import {
   Popover,
   PopoverContent,
@@ -52,6 +53,9 @@ import {
   Info,
   Loader2,
   History,
+  // Removed MoreVertical
+  PlayCircle,
+  // Removed Landmark, Scale if only used in mobile accordion
 } from "lucide-react";
 
 // Utilities & Types
@@ -77,9 +81,8 @@ const ForecastHistoryDots: React.FC<{
   history: { isCorrect: boolean | null; weekSectionId: string }[];
 }> = ({ history }) => {
   const validHistory = history.filter((h) => h.isCorrect !== null);
-
   return (
-    <div className="flex space-x-1">
+    <div className="flex items-center space-x-1">
       {validHistory.slice(0, 3).map((item, index) => (
         <TooltipProvider key={`${item.weekSectionId}-${index}`}>
           <Tooltip>
@@ -101,7 +104,7 @@ const ForecastHistoryDots: React.FC<{
         (_, index) => (
           <div
             key={`placeholder-${index}`}
-            className="h-2 w-2 shrink-0 rounded-full bg-gray-300 dark:bg-gray-600" // Adjusted placeholder for dark
+            className="h-2 w-2 shrink-0 rounded-full bg-gray-300 dark:bg-gray-600"
             title="No data"
           />
         ),
@@ -109,6 +112,23 @@ const ForecastHistoryDots: React.FC<{
     </div>
   );
 };
+
+// --- Live Indicator Component ---
+const LiveIndicator: React.FC<{ className?: string }> = ({ className }) => (
+  <TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("relative flex h-2 w-2", className)}>
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Live</p>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
 
 // --- Main Table Component ---
 export function FootballScoresTable({
@@ -135,20 +155,21 @@ export function FootballScoresTable({
   const [forecastHistory, setForecastHistory] =
     useState<FetchedForecastHistory>({});
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+  const [firstLiveFixtureId, setFirstLiveFixtureId] = useState<number | null>(
+    null,
+  );
 
   const SOFIA_TIMEZONE = "Europe/Sofia";
 
   // --- Helper Functions ---
   const formatDisplayTime = useCallback((startTime: Date): string => {
     try {
-      // Ensure startTime is a valid Date object before formatting
-      if (!(startTime instanceof Date) || isNaN(startTime.getTime())) {
-        throw new Error("Invalid Date object received");
-      }
+      if (!(startTime instanceof Date) || isNaN(startTime.getTime()))
+        throw new Error("Invalid Date object");
       return formatTz(startTime, "HH:mm", { timeZone: SOFIA_TIMEZONE });
     } catch (e) {
       console.error("Error formatting time:", e, "Input:", startTime);
-      return "--:--"; // Return placeholder on error
+      return "--:--";
     }
   }, []);
 
@@ -166,12 +187,9 @@ export function FootballScoresTable({
       const awayScore = scoreData.away ?? "-";
       if (status.short === "FT") return `${homeScore} - ${awayScore}`;
       if (
-        status.short === "1H" ||
-        status.short === "HT" ||
-        status.short === "2H" ||
-        status.short === "ET" ||
-        status.short === "P" ||
-        status.short === "BT"
+        ["1H", "HT", "2H", "ET", "P", "BT", "LIVE", "INT"].includes(
+          status.short,
+        )
       ) {
         const elapsed = status.elapsed ? ` ${status.elapsed}'` : "";
         return `${homeScore} - ${awayScore} (${status.short}${elapsed})`;
@@ -256,11 +274,32 @@ export function FootballScoresTable({
     return (correctForecasts / total) * 100;
   }, [correctForecasts, incorrectForecasts]);
 
+  const getLocalDay = useCallback((date: Date): Date => {
+    try {
+      if (!(date instanceof Date) || isNaN(date.getTime()))
+        throw new Error("Invalid Date object received by getLocalDay");
+      return startOfDay(toZonedTime(date, SOFIA_TIMEZONE));
+    } catch (e) {
+      console.error(e, "Input date:", date);
+      return startOfDay(new Date());
+    }
+  }, []);
+
+  const isLiveStatus = useCallback((statusShort: string): boolean => {
+    return ["1H", "HT", "2H", "ET", "P", "BT", "LIVE", "INT"].includes(
+      statusShort,
+    );
+  }, []);
+
   // --- Effects ---
   useEffect(() => {
     setScores(initialScores);
     calculateForecastCounts(initialScores);
-  }, [initialScores, calculateForecastCounts]);
+    const liveMatch = initialScores.find((score) =>
+      isLiveStatus(score.status.short),
+    );
+    setFirstLiveFixtureId(liveMatch ? liveMatch.fixtureId : null);
+  }, [initialScores, calculateForecastCounts, isLiveStatus]);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -307,30 +346,69 @@ export function FootballScoresTable({
     [],
   );
 
+  const scrollToLiveMatch = useCallback(() => {
+    if (firstLiveFixtureId) {
+      const element = document.getElementById(`fixture-${firstLiveFixtureId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+        element.classList.add(
+          "ring-2",
+          "ring-offset-2",
+          "ring-offset-background",
+          "ring-blue-500",
+          "dark:ring-blue-400",
+          "rounded-md",
+          "transition-shadow",
+          "duration-1000",
+          "ease-out",
+        );
+        setTimeout(() => {
+          element.classList.remove(
+            "ring-2",
+            "ring-offset-2",
+            "ring-offset-background",
+            "ring-blue-500",
+            "dark:ring-blue-400",
+            "rounded-md",
+            "transition-shadow",
+            "duration-1000",
+            "ease-out",
+          );
+        }, 1500);
+      } else {
+        console.warn(
+          `Element with id fixture-${firstLiveFixtureId} not found.`,
+        );
+      }
+    } else {
+      console.log(
+        "No live matches to scroll to.",
+      ); /* Add toast here if desired */
+    }
+  }, [firstLiveFixtureId]);
+
   // --- Render Logic ---
   const displayError = pageError ?? localError;
-
-  // Helper to get the start of the day in Sofia time for grouping
-  const getLocalDay = useCallback((date: Date): Date => {
-    try {
-      // Ensure input is a valid Date object
-      if (!(date instanceof Date) || isNaN(date.getTime())) {
-        throw new Error("Invalid Date object received by getLocalDay");
-      }
-      return startOfDay(toZonedTime(date, SOFIA_TIMEZONE));
-    } catch (e) {
-      console.error(e, "Input date:", date);
-      return startOfDay(new Date()); // Fallback to current day start
-    }
-  }, []);
 
   return (
     <div
       className={cn(
-        "w-full overflow-auto",
+        "container mx-auto py-10",
         !isLoading && scores.length > 0 ? "" : "pb-10",
       )}
     >
+      {/* Header Section */}
+      <div className="mb-5 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Football Scores</h1>
+        <Button
+          onClick={scrollToLiveMatch}
+          disabled={isLoading || !firstLiveFixtureId}
+          variant="outline"
+        >
+          <PlayCircle className="mr-2 h-4 w-4" /> Live
+        </Button>
+      </div>
+
       {/* Error Display */}
       {displayError && (
         <div
@@ -355,376 +433,360 @@ export function FootballScoresTable({
         </div>
       )}
 
-      {/* --- Table (Desktop & Mobile handled within) --- */}
+      {/* --- Desktop Table (Always Visible) --- */}
       {!isLoading && scores.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[50px] text-muted-foreground">
-                #
-              </TableHead>
-              <TableHead className="text-muted-foreground">Time</TableHead>
-              <TableHead className="text-left text-muted-foreground">
-                Home
-              </TableHead>
-              <TableHead className="text-left text-muted-foreground">
-                Away
-              </TableHead>
-              <TableHead className="text-muted-foreground">Score</TableHead>
-              <TableHead className="text-muted-foreground">1</TableHead>
-              <TableHead className="text-muted-foreground">X</TableHead>
-              <TableHead className="text-muted-foreground">2</TableHead>
-              <TableHead>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="h-8 w-full p-0 font-bold text-muted-foreground hover:text-foreground"
-                    >
-                      fcast <Info className="ml-1 h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-80">
-                    <div className="grid gap-4">
-                      <div className="space-y-2">
-                        <h4 className="font-medium leading-none">
-                          Current Section Forecasts
-                        </h4>
-                        <p className="text-sm text-muted-foreground">
-                          Accuracy for finished matches in this view.
-                        </p>
-                      </div>
-                      <div className="grid gap-2">
-                        <div className="grid grid-cols-3 items-center gap-4">
-                          <span className="text-sm font-medium">Correct:</span>
-                          <span className="col-span-2 text-green-600 dark:text-green-400">
-                            {correctForecasts}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 items-center gap-4">
-                          <span className="text-sm font-medium">
-                            Incorrect:
-                          </span>
-                          <span className="col-span-2 text-red-600 dark:text-red-400">
-                            {incorrectForecasts}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 items-center gap-4">
-                          <span className="text-sm font-medium">Win Rate:</span>
-                          <span className="col-span-2 font-semibold">
-                            {calculateWinRate().toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </TableHead>
-              <TableHead className="text-muted-foreground">League</TableHead>
-              <TableHead className="text-muted-foreground">Flag</TableHead>
-              <TableHead>
-                <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {scores.map((score, index) => {
-              const forecastValue = getForecast(score.rowNumber);
-              const historyForRow = forecastHistory[score.rowNumber] ?? [];
-              const isMatchNotStarted = score.status.short === "NS";
-
-              // Day Grouping Logic (using local day)
-              const currentMatchDayStart = getLocalDay(
-                new Date(score.startTime),
-              );
-              const prevMatchDayStart =
-                index > 0
-                  ? getLocalDay(new Date(scores[index - 1]!.startTime))
-                  : null;
-              const showDaySeparator =
-                index === 0 ||
-                (prevMatchDayStart &&
-                  !isDateEqual(currentMatchDayStart, prevMatchDayStart));
-              const formattedDay = format(currentMatchDayStart, "EEEE, MMM d");
-
-              return (
-                <React.Fragment key={score.fixtureId}>
-                  {/* Day Separator Row */}
-                  {showDaySeparator && (
-                    <TableRow
-                      key={`day-${formattedDay}-${score.fixtureId}`}
-                      className="hover:bg-transparent dark:hover:bg-transparent"
-                    >
-                      <TableCell
-                        colSpan={12}
-                        className="bg-slate-100 py-2 text-center font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+        <div className="w-full overflow-auto">
+          {/* Removed responsive classes */}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[50px] text-muted-foreground">
+                  #
+                </TableHead>
+                <TableHead className="text-muted-foreground">Time</TableHead>
+                <TableHead className="text-left text-muted-foreground">
+                  Home
+                </TableHead>
+                <TableHead className="text-left text-muted-foreground">
+                  Away
+                </TableHead>
+                <TableHead className="text-muted-foreground">Score</TableHead>
+                <TableHead className="text-muted-foreground">1</TableHead>
+                <TableHead className="text-muted-foreground">X</TableHead>
+                <TableHead className="text-muted-foreground">2</TableHead>
+                <TableHead>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className="h-8 w-full p-0 font-bold text-muted-foreground hover:text-foreground"
                       >
-                        {formattedDay}
+                        fcast <Info className="ml-1 h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      {/* Forecast Stats Popover */}
+                    </PopoverContent>
+                  </Popover>
+                </TableHead>
+                <TableHead className="text-muted-foreground">League</TableHead>
+                <TableHead className="text-muted-foreground">Flag</TableHead>
+                <TableHead>
+                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {scores.map((score, index) => {
+                const forecastValue = getForecast(score.rowNumber);
+                const historyForRow = forecastHistory[score.rowNumber] ?? [];
+                const isMatchNotStarted = score.status.short === "NS";
+                const isLive = isLiveStatus(score.status.short);
+                const currentMatchDayStart = getLocalDay(
+                  new Date(score.startTime),
+                );
+                const prevMatchDayStart =
+                  index > 0
+                    ? getLocalDay(new Date(scores[index - 1]!.startTime))
+                    : null;
+                const showDaySeparator =
+                  index === 0 ||
+                  (prevMatchDayStart &&
+                    !isDateEqual(currentMatchDayStart, prevMatchDayStart));
+                const formattedDay = format(
+                  currentMatchDayStart,
+                  "EEEE, MMM d",
+                );
+
+                return (
+                  <React.Fragment key={score.fixtureId}>
+                    {showDaySeparator && (
+                      <TableRow
+                        key={`day-${formattedDay}-${score.fixtureId}`}
+                        className="hover:bg-transparent dark:hover:bg-transparent"
+                      >
+                        <TableCell
+                          colSpan={12}
+                          className="bg-slate-100 py-2 text-center font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                        >
+                          {formattedDay}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    <TableRow id={`fixture-${score.fixtureId}`}>
+                      <TableCell className="text-muted-foreground">
+                        {score.rowNumber}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {isLive && <LiveIndicator />}
+                          {formatDisplayTime(new Date(score.startTime))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-left">
+                        <button
+                          onClick={() =>
+                            handleTeamClick(
+                              score.home.id,
+                              score.home.name,
+                              score.league.id,
+                            )
+                          }
+                          className="flex items-center gap-2 text-left hover:text-blue-500 hover:underline dark:hover:text-blue-400"
+                          title={score.home.name}
+                        >
+                          {score.home.logo ? (
+                            <Image
+                              src={score.home.logo}
+                              alt=""
+                              width={20}
+                              height={20}
+                              className="shrink-0"
+                            />
+                          ) : (
+                            <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700" />
+                          )}
+                          <span className="truncate">{score.home.name}</span>
+                        </button>
+                      </TableCell>
+                      <TableCell className="text-left">
+                        <button
+                          onClick={() =>
+                            handleTeamClick(
+                              score.away.id,
+                              score.away.name,
+                              score.league.id,
+                            )
+                          }
+                          className="flex items-center gap-2 text-left hover:text-blue-500 hover:underline dark:hover:text-blue-400"
+                          title={score.away.name}
+                        >
+                          {score.away.logo ? (
+                            <Image
+                              src={score.away.logo}
+                              alt=""
+                              width={20}
+                              height={20}
+                              className="shrink-0"
+                            />
+                          ) : (
+                            <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700" />
+                          )}
+                          <span className="truncate">{score.away.name}</span>
+                        </button>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center justify-center gap-2">
+                          {isLive && (
+                            <LiveIndicator className="hidden lg:flex" />
+                          )}
+                          <span>
+                            {getScoreDisplay(score.score, score.status)}
+                          </span>
+                        </div>
+                      </TableCell>
+                      {/* Adjusted live indicator display */}
+                      <TableCell className="text-muted-foreground">
+                        {score.odds.home ?? "-"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {score.odds.draw ?? "-"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {score.odds.away ?? "-"}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-center",
+                          getForecastCellClasses(
+                            score.score,
+                            score.status,
+                            forecastValue,
+                          ),
+                        )}
+                      >
+                        {forecastValue ? (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="link"
+                                className="h-auto p-0 font-medium text-current hover:no-underline"
+                                disabled={isHistoryLoading}
+                              >
+                                {forecastValue}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-2">
+                              {isHistoryLoading ? (
+                                <div className="flex items-center text-sm text-muted-foreground">
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Loading...
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-sm font-medium">
+                                    History:
+                                  </span>
+                                  <ForecastHistoryDots
+                                    history={historyForRow}
+                                  />
+                                </div>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell
+                        className="max-w-[150px] truncate text-muted-foreground"
+                        title={`${score.league.country} - ${score.league.name}`}
+                      >{`${score.league.country} - ${score.league.name}`}</TableCell>
+                      <TableCell>
+                        {score.league.flag ? (
+                          <Image
+                            src={score.league.flag}
+                            alt={score.league.country}
+                            title={score.league.country}
+                            width={20}
+                            height={15}
+                            className="shrink-0"
+                          />
+                        ) : (
+                          <div className="h-4 w-5 shrink-0 rounded-sm bg-gray-200 dark:bg-gray-700" />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                              <span className="sr-only">Open menu</span>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                handleOptionClick(score.fixtureId, "prediction")
+                              }
+                            >
+                              <LineChart className="mr-2 h-4 w-4" />
+                              <span>Prediction Details</span>
+                            </DropdownMenuItem>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className={
+                                      isMatchNotStarted
+                                        ? "cursor-not-allowed"
+                                        : ""
+                                    }
+                                  >
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleOptionClick(
+                                          score.fixtureId,
+                                          "statistics",
+                                        )
+                                      }
+                                      disabled={isMatchNotStarted}
+                                      className={
+                                        isMatchNotStarted ? "opacity-50" : ""
+                                      }
+                                    >
+                                      <BarChart className="mr-2 h-4 w-4" />
+                                      <span>Statistics</span>
+                                    </DropdownMenuItem>
+                                  </div>
+                                </TooltipTrigger>
+                                {isMatchNotStarted && (
+                                  <TooltipContent>
+                                    <p>Available after match starts</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className={
+                                      isMatchNotStarted
+                                        ? "cursor-not-allowed"
+                                        : ""
+                                    }
+                                  >
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleOptionClick(
+                                          score.fixtureId,
+                                          "lineups",
+                                        )
+                                      }
+                                      disabled={isMatchNotStarted}
+                                      className={
+                                        isMatchNotStarted ? "opacity-50" : ""
+                                      }
+                                    >
+                                      <Users className="mr-2 h-4 w-4" />
+                                      <span>Lineups</span>
+                                    </DropdownMenuItem>
+                                  </div>
+                                </TooltipTrigger>
+                                {isMatchNotStarted && (
+                                  <TooltipContent>
+                                    <p>Available after match starts</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div
+                                    className={
+                                      isMatchNotStarted
+                                        ? "cursor-not-allowed"
+                                        : ""
+                                    }
+                                  >
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleOptionClick(
+                                          score.fixtureId,
+                                          "events",
+                                        )
+                                      }
+                                      disabled={isMatchNotStarted}
+                                      className={
+                                        isMatchNotStarted ? "opacity-50" : ""
+                                      }
+                                    >
+                                      <Calendar className="mr-2 h-4 w-4" />
+                                      <span>Events</span>
+                                    </DropdownMenuItem>
+                                  </div>
+                                </TooltipTrigger>
+                                {isMatchNotStarted && (
+                                  <TooltipContent>
+                                    <p>Available after match starts</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            </TooltipProvider>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  )}
-                  {/* Main Row */}
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">
-                      {score.rowNumber}
-                    </TableCell>
-                    <TableCell>
-                      {formatDisplayTime(new Date(score.startTime))}
-                    </TableCell>
-                    <TableCell className="text-left">
-                      <button
-                        onClick={() =>
-                          handleTeamClick(
-                            score.home.id,
-                            score.home.name,
-                            score.league.id,
-                          )
-                        }
-                        className="flex items-center gap-2 text-left hover:text-blue-500 hover:underline dark:hover:text-blue-400"
-                        title={score.home.name}
-                      >
-                        {score.home.logo ? (
-                          <Image
-                            src={score.home.logo}
-                            alt=""
-                            width={20}
-                            height={20}
-                            className="shrink-0"
-                          />
-                        ) : (
-                          <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700" />
-                        )}
-                        <span className="truncate">{score.home.name}</span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="text-left">
-                      <button
-                        onClick={() =>
-                          handleTeamClick(
-                            score.away.id,
-                            score.away.name,
-                            score.league.id,
-                          )
-                        }
-                        className="flex items-center gap-2 text-left hover:text-blue-500 hover:underline dark:hover:text-blue-400"
-                        title={score.away.name}
-                      >
-                        {score.away.logo ? (
-                          <Image
-                            src={score.away.logo}
-                            alt=""
-                            width={20}
-                            height={20}
-                            className="shrink-0"
-                          />
-                        ) : (
-                          <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700" />
-                        )}
-                        <span className="truncate">{score.away.name}</span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {getScoreDisplay(score.score, score.status)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {score.odds.home ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {score.odds.draw ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {score.odds.away ?? "-"}
-                    </TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-center",
-                        getForecastCellClasses(
-                          score.score,
-                          score.status,
-                          forecastValue,
-                        ),
-                      )}
-                    >
-                      {forecastValue ? (
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="link"
-                              className="h-auto p-0 font-medium text-current hover:no-underline"
-                              disabled={isHistoryLoading}
-                            >
-                              {forecastValue}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-2">
-                            {isHistoryLoading ? (
-                              <div className="flex items-center text-sm text-muted-foreground">
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Loading...
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-2">
-                                <span className="text-sm font-medium">
-                                  History:
-                                </span>
-                                <ForecastHistoryDots history={historyForRow} />
-                              </div>
-                            )}
-                          </PopoverContent>
-                        </Popover>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell
-                      className="max-w-[150px] truncate text-muted-foreground"
-                      title={`${score.league.country} - ${score.league.name}`}
-                    >
-                      {`${score.league.country} - ${score.league.name}`}
-                    </TableCell>
-                    <TableCell>
-                      {score.league.flag ? (
-                        <Image
-                          src={score.league.flag}
-                          alt={score.league.country}
-                          title={score.league.country}
-                          width={20}
-                          height={15}
-                          className="shrink-0"
-                        />
-                      ) : (
-                        <div className="h-4 w-5 shrink-0 rounded-sm bg-gray-200 dark:bg-gray-700" />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <span className="sr-only">Open menu</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              handleOptionClick(score.fixtureId, "prediction")
-                            }
-                          >
-                            <LineChart className="mr-2 h-4 w-4" />
-                            <span>Prediction Details</span>
-                          </DropdownMenuItem>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div
-                                  className={
-                                    isMatchNotStarted
-                                      ? "cursor-not-allowed"
-                                      : ""
-                                  }
-                                >
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleOptionClick(
-                                        score.fixtureId,
-                                        "statistics",
-                                      )
-                                    }
-                                    disabled={isMatchNotStarted}
-                                    className={
-                                      isMatchNotStarted ? "opacity-50" : ""
-                                    }
-                                  >
-                                    <BarChart className="mr-2 h-4 w-4" />
-                                    <span>Statistics</span>
-                                  </DropdownMenuItem>
-                                </div>
-                              </TooltipTrigger>
-                              {isMatchNotStarted && (
-                                <TooltipContent>
-                                  <p>Available after match starts</p>
-                                </TooltipContent>
-                              )}
-                            </Tooltip>
-                          </TooltipProvider>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div
-                                  className={
-                                    isMatchNotStarted
-                                      ? "cursor-not-allowed"
-                                      : ""
-                                  }
-                                >
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleOptionClick(
-                                        score.fixtureId,
-                                        "lineups",
-                                      )
-                                    }
-                                    disabled={isMatchNotStarted}
-                                    className={
-                                      isMatchNotStarted ? "opacity-50" : ""
-                                    }
-                                  >
-                                    <Users className="mr-2 h-4 w-4" />
-                                    <span>Lineups</span>
-                                  </DropdownMenuItem>
-                                </div>
-                              </TooltipTrigger>
-                              {isMatchNotStarted && (
-                                <TooltipContent>
-                                  <p>Available after match starts</p>
-                                </TooltipContent>
-                              )}
-                            </Tooltip>
-                          </TooltipProvider>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div
-                                  className={
-                                    isMatchNotStarted
-                                      ? "cursor-not-allowed"
-                                      : ""
-                                  }
-                                >
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleOptionClick(
-                                        score.fixtureId,
-                                        "events",
-                                      )
-                                    }
-                                    disabled={isMatchNotStarted}
-                                    className={
-                                      isMatchNotStarted ? "opacity-50" : ""
-                                    }
-                                  >
-                                    <Calendar className="mr-2 h-4 w-4" />
-                                    <span>Events</span>
-                                  </DropdownMenuItem>
-                                </div>
-                              </TooltipTrigger>
-                              {isMatchNotStarted && (
-                                <TooltipContent>
-                                  <p>Available after match starts</p>
-                                </TooltipContent>
-                              )}
-                            </Tooltip>
-                          </TooltipProvider>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                </React.Fragment>
-              );
-            })}
-          </TableBody>
-        </Table>
+                  </React.Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
+
       {/* Modals */}
       <PredictionModal
         isOpen={modalType === "prediction"}
