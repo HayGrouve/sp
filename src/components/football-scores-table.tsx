@@ -3,6 +3,11 @@
 
 import React from "react";
 import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
+import { format, startOfDay, isEqual as isDateEqual } from "date-fns"; // Import date-fns functions
+import { toZonedTime, format as formatTz } from "date-fns-tz"; // Use date-fns-tz for formatting
+
+// Shadcn UI Components
 import {
   Table,
   TableBody,
@@ -23,12 +28,21 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { FootballScore } from "@/types/football-scores"; // Assuming this path is correct
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+// Modals (Assuming these paths are correct)
 import { PredictionModal } from "./prediction-modal";
 import { StatisticsModal } from "./statistics-modal";
 import { LineupsModal } from "./lineups-modal";
 import { EventsModal } from "./events-modal";
 import { TeamStatisticsModal } from "./team-statistics-modal";
+
+// Icons
 import {
   MoreHorizontal,
   LineChart,
@@ -36,22 +50,20 @@ import {
   Users,
   Calendar,
   Info,
-  Loader2, // For loading state
+  Loader2,
+  History,
 } from "lucide-react";
-import Image from "next/image";
-import { rowForecastMap } from "@/utils/rowForecastMap"; // Ensure path is correct
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { format } from "date-fns-tz"; // Use date-fns-tz for formatting
 
+// Utilities & Types
+import type { FootballScore } from "@/types/football-scores"; // Adjust import path if needed
+import { rowForecastMap } from "@/utils/rowForecastMap"; // Ensure path is correct
+import { cn } from "@/lib/utils"; // Import cn utility if using shadcn
+
+// Props definition
 interface FootballScoresTableProps {
-  initialScores: FootballScore[]; // Scores for the current section, passed from page
-  isLoading: boolean; // Pass loading state from the page/hook
-  error: string | null; // Pass error state from the page/hook
+  initialScores: FootballScore[];
+  isLoading: boolean;
+  error: string | null;
 }
 
 // Type for the fetched forecast history data
@@ -60,42 +72,36 @@ type FetchedForecastHistory = Record<
   { isCorrect: boolean | null; weekSectionId: string }[]
 >;
 
-// Component to display history dots
+// --- Forecast History Dots Component ---
 const ForecastHistoryDots: React.FC<{
   history: { isCorrect: boolean | null; weekSectionId: string }[];
 }> = ({ history }) => {
-  // Ensure we only show dots for entries with a non-null isCorrect status
   const validHistory = history.filter((h) => h.isCorrect !== null);
 
   return (
     <div className="flex space-x-1">
-      {validHistory.slice(0, 3).map(
-        (
-          item,
-          index, // Show up to 3 dots
-        ) => (
-          <TooltipProvider key={`${item.weekSectionId}-${index}`}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={`h-2 w-2 rounded-full ${
-                    item.isCorrect ? "bg-green-500" : "bg-red-500"
-                  }`}
-                />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Section: {item.weekSectionId}</p>
-                <p>Result: {item.isCorrect ? "Correct" : "Incorrect"}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ),
-      )}
+      {validHistory.slice(0, 3).map((item, index) => (
+        <TooltipProvider key={`${item.weekSectionId}-${index}`}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={`h-2 w-2 shrink-0 rounded-full ${
+                  item.isCorrect ? "bg-green-500" : "bg-red-500"
+                }`}
+              />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Section: {item.weekSectionId}</p>
+              <p>Result: {item.isCorrect ? "Correct" : "Incorrect"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ))}
       {Array.from({ length: Math.max(0, 3 - validHistory.length) }).map(
         (_, index) => (
           <div
             key={`placeholder-${index}`}
-            className="h-2 w-2 rounded-full bg-gray-300"
+            className="h-2 w-2 shrink-0 rounded-full bg-gray-300 dark:bg-gray-600" // Adjusted placeholder for dark
             title="No data"
           />
         ),
@@ -104,14 +110,14 @@ const ForecastHistoryDots: React.FC<{
   );
 };
 
+// --- Main Table Component ---
 export function FootballScoresTable({
   initialScores,
   isLoading,
-  error: pageError, // Rename prop to avoid conflict with local error state
+  error: pageError,
 }: FootballScoresTableProps) {
-  // State for the scores displayed (initially from props)
+  // --- State ---
   const [scores, setScores] = useState<FootballScore[]>(initialScores);
-  // State for modals
   const [selectedFixtureId, setSelectedFixtureId] = useState<number | null>(
     null,
   );
@@ -123,63 +129,58 @@ export function FootballScoresTable({
     name: string;
     leagueId: number;
   } | null>(null);
-  // State for local errors (e.g., history fetch error)
   const [localError, setLocalError] = useState<string | null>(null);
-  // State for forecast counts (calculated from current scores)
   const [correctForecasts, setCorrectForecasts] = useState(0);
   const [incorrectForecasts, setIncorrectForecasts] = useState(0);
-  // State for fetched forecast history
   const [forecastHistory, setForecastHistory] =
     useState<FetchedForecastHistory>({});
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
 
   const SOFIA_TIMEZONE = "Europe/Sofia";
 
-  // Format time using date-fns-tz
-  const formatDisplayTime = (isoString: string): string => {
+  // --- Helper Functions ---
+  const formatDisplayTime = useCallback((startTime: Date): string => {
     try {
-      const date = new Date(isoString); // Parse ISO string
-      return format(date, "HH:mm", { timeZone: SOFIA_TIMEZONE });
+      // Ensure startTime is a valid Date object before formatting
+      if (!(startTime instanceof Date) || isNaN(startTime.getTime())) {
+        throw new Error("Invalid Date object received");
+      }
+      return formatTz(startTime, "HH:mm", { timeZone: SOFIA_TIMEZONE });
     } catch (e) {
-      console.error("Error formatting time:", e);
-      return "Invalid Date";
+      console.error("Error formatting time:", e, "Input:", startTime);
+      return "--:--"; // Return placeholder on error
     }
-  };
+  }, []);
 
-  // Get score display string
-  const getScoreDisplay = (
-    scoreData: FootballScore["score"],
-    status: FootballScore["status"],
-  ): string => {
-    if (status.short === "NS") return "-"; // Not Started
-    if (status.short === "PST") return "PST"; // Postponed
-    if (status.short === "CANC") return "CANC"; // Cancelled
-    if (status.short === "ABD") return "ABD"; // Abandoned
-    if (status.short === "TBD") return "TBD"; // To Be Defined
-
-    const homeScore = scoreData.home ?? "-";
-    const awayScore = scoreData.away ?? "-";
-
-    if (status.short === "FT") {
+  const getScoreDisplay = useCallback(
+    (
+      scoreData: FootballScore["score"],
+      status: FootballScore["status"],
+    ): string => {
+      if (status.short === "NS") return "-";
+      if (status.short === "PST") return "PST";
+      if (status.short === "CANC") return "CANC";
+      if (status.short === "ABD") return "ABD";
+      if (status.short === "TBD") return "TBD";
+      const homeScore = scoreData.home ?? "-";
+      const awayScore = scoreData.away ?? "-";
+      if (status.short === "FT") return `${homeScore} - ${awayScore}`;
+      if (
+        status.short === "1H" ||
+        status.short === "HT" ||
+        status.short === "2H" ||
+        status.short === "ET" ||
+        status.short === "P" ||
+        status.short === "BT"
+      ) {
+        const elapsed = status.elapsed ? ` ${status.elapsed}'` : "";
+        return `${homeScore} - ${awayScore} (${status.short}${elapsed})`;
+      }
       return `${homeScore} - ${awayScore}`;
-    }
-    // Live statuses
-    if (
-      status.short === "1H" ||
-      status.short === "HT" || // Halftime
-      status.short === "2H" ||
-      status.short === "ET" || // Extra Time
-      status.short === "P" || // Penalty Shootout
-      status.short === "BT" // Break Time (Extra Time)
-    ) {
-      const elapsed = status.elapsed ? ` ${status.elapsed}'` : "";
-      return `${homeScore} - ${awayScore} (${status.short}${elapsed})`;
-    }
-    // Default fallback
-    return `${homeScore} - ${awayScore}`;
-  };
+    },
+    [],
+  );
 
-  // Get forecast based on row number (NO MODULO)
   const getForecast = useCallback((rowNumber: number): string | null => {
     const forecastItem = rowForecastMap.find(
       (item) => item.rowNumber === rowNumber,
@@ -187,25 +188,20 @@ export function FootballScoresTable({
     return forecastItem ? forecastItem.forecast : null;
   }, []);
 
-  // Check if forecast is correct (for styling finished matches)
   const isForecastCorrect = useCallback(
     (
       scoreData: FootballScore["score"],
       forecast: string | null,
     ): boolean | null => {
-      // Can only determine correctness if match is finished and forecast exists
       if (
         !forecast ||
         typeof scoreData.home !== "number" ||
         typeof scoreData.away !== "number"
-      ) {
-        return null; // Undetermined
-      }
-
+      )
+        return null;
       const homeWin = scoreData.home > scoreData.away;
       const awayWin = scoreData.home < scoreData.away;
       const draw = scoreData.home === scoreData.away;
-
       switch (forecast) {
         case "1/X":
           return homeWin || draw;
@@ -214,82 +210,68 @@ export function FootballScoresTable({
         case "X/2":
           return draw || awayWin;
         default:
-          return false; // Should not happen with valid forecast map
+          return false;
       }
     },
     [],
   );
 
-  // Get style for forecast cell based on correctness (only for finished matches)
-  const getForecastCellStyle = (
-    scoreData: FootballScore["score"],
-    status: FootballScore["status"],
-    forecast: string | null,
-  ): React.CSSProperties => {
-    if (status.short !== "FT" || !forecast) return {}; // Only style finished matches with forecasts
+  const getForecastCellClasses = useCallback(
+    (
+      scoreData: FootballScore["score"],
+      status: FootballScore["status"],
+      forecast: string | null,
+    ): string => {
+      if (status.short !== "FT" || !forecast) return "";
+      const correct = isForecastCorrect(scoreData, forecast);
+      if (correct === null) return "";
+      return correct
+        ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300"
+        : "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300";
+    },
+    [isForecastCorrect],
+  );
 
-    const correct = isForecastCorrect(scoreData, forecast);
-    if (correct === null) return {}; // Undetermined
-
-    return {
-      backgroundColor: correct
-        ? "rgba(74, 222, 128, 0.2)" // Green-400 with opacity
-        : "rgba(248, 113, 113, 0.2)", // Red-400 with opacity
-    };
-  };
-
-  // Calculate forecast counts for the *currently displayed* finished matches
   const calculateForecastCounts = useCallback(
     (currentScores: FootballScore[]): void => {
       let correct = 0;
       let incorrect = 0;
-
       currentScores.forEach((score) => {
         if (score.status.short === "FT") {
           const forecast = getForecast(score.rowNumber);
           const correctness = isForecastCorrect(score.score, forecast);
-          if (correctness === true) {
-            correct++;
-          } else if (correctness === false) {
-            incorrect++;
-          }
+          if (correctness === true) correct++;
+          else if (correctness === false) incorrect++;
         }
       });
-
       setCorrectForecasts(correct);
       setIncorrectForecasts(incorrect);
     },
     [getForecast, isForecastCorrect],
   );
 
-  // Calculate win rate based on state
-  const calculateWinRate = (): number => {
+  const calculateWinRate = useCallback((): number => {
     const total = correctForecasts + incorrectForecasts;
     if (total === 0) return 0;
     return (correctForecasts / total) * 100;
-  };
+  }, [correctForecasts, incorrectForecasts]);
 
   // --- Effects ---
-
-  // Update scores and recalculate counts when initialScores prop changes
   useEffect(() => {
-    // No need to sort here if backend already sorts
     setScores(initialScores);
     calculateForecastCounts(initialScores);
   }, [initialScores, calculateForecastCounts]);
 
-  // Fetch forecast history on component mount
   useEffect(() => {
     const fetchHistory = async () => {
       setIsHistoryLoading(true);
       setLocalError(null);
       try {
-        const response = await fetch("/api/forecast-history"); // Call the new API route
-        if (!response.ok) {
+        const response = await fetch("/api/forecast-history");
+        if (!response.ok)
           throw new Error(
             `Failed to fetch forecast history: ${response.statusText}`,
           );
-        }
         const data = (await response.json()) as FetchedForecastHistory;
         setForecastHistory(data);
       } catch (error) {
@@ -303,74 +285,103 @@ export function FootballScoresTable({
         setIsHistoryLoading(false);
       }
     };
-
     void fetchHistory();
-    // No dependency array needed if it should only run once on mount
   }, []);
 
   // --- Event Handlers ---
-  const handleOptionClick = (
-    fixtureId: number,
-    type: "prediction" | "statistics" | "lineups" | "events",
-  ): void => {
-    setSelectedFixtureId(fixtureId);
-    setModalType(type);
-  };
+  const handleOptionClick = useCallback(
+    (
+      fixtureId: number,
+      type: "prediction" | "statistics" | "lineups" | "events",
+    ): void => {
+      setSelectedFixtureId(fixtureId);
+      setModalType(type);
+    },
+    [],
+  );
 
-  const handleTeamClick = (
-    teamId: number,
-    teamName: string,
-    leagueId: number,
-  ): void => {
-    setSelectedTeam({ id: teamId, name: teamName, leagueId });
-  };
+  const handleTeamClick = useCallback(
+    (teamId: number, teamName: string, leagueId: number): void => {
+      setSelectedTeam({ id: teamId, name: teamName, leagueId });
+    },
+    [],
+  );
 
   // --- Render Logic ---
   const displayError = pageError ?? localError;
 
+  // Helper to get the start of the day in Sofia time for grouping
+  const getLocalDay = useCallback((date: Date): Date => {
+    try {
+      // Ensure input is a valid Date object
+      if (!(date instanceof Date) || isNaN(date.getTime())) {
+        throw new Error("Invalid Date object received by getLocalDay");
+      }
+      return startOfDay(toZonedTime(date, SOFIA_TIMEZONE));
+    } catch (e) {
+      console.error(e, "Input date:", date);
+      return startOfDay(new Date()); // Fallback to current day start
+    }
+  }, []);
+
   return (
-    <div className="w-full overflow-auto">
+    <div
+      className={cn(
+        "w-full overflow-auto",
+        !isLoading && scores.length > 0 ? "" : "pb-10",
+      )}
+    >
+      {/* Error Display */}
       {displayError && (
         <div
-          className="relative mb-4 rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700"
+          className="relative mb-4 rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700 dark:border-red-600 dark:bg-red-900/20 dark:text-red-400"
           role="alert"
         >
           <strong className="font-bold">Error: </strong>
           <span className="block sm:inline">{displayError}</span>
         </div>
       )}
-      {isLoading && ( // Show loading indicator based on page loading state
+      {/* Loading Indicator */}
+      {isLoading && (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="mr-2 h-6 w-6 animate-spin" />
           <span>Loading scores...</span>
         </div>
       )}
+      {/* No Matches Found */}
       {!isLoading && !displayError && scores.length === 0 && (
         <div className="py-4 text-center text-muted-foreground">
           No matches found for the current period.
         </div>
       )}
+
+      {/* --- Table (Desktop & Mobile handled within) --- */}
       {!isLoading && scores.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[50px]">#</TableHead>
-              <TableHead>Time</TableHead>
-              <TableHead className="text-left">Home</TableHead>
-              <TableHead className="text-left">Away</TableHead>
-              <TableHead>Score</TableHead>
-              <TableHead>1</TableHead>
-              <TableHead>X</TableHead>
-              <TableHead>2</TableHead>
+              <TableHead className="w-[50px] text-muted-foreground">
+                #
+              </TableHead>
+              <TableHead className="text-muted-foreground">Time</TableHead>
+              <TableHead className="text-left text-muted-foreground">
+                Home
+              </TableHead>
+              <TableHead className="text-left text-muted-foreground">
+                Away
+              </TableHead>
+              <TableHead className="text-muted-foreground">Score</TableHead>
+              <TableHead className="text-muted-foreground">1</TableHead>
+              <TableHead className="text-muted-foreground">X</TableHead>
+              <TableHead className="text-muted-foreground">2</TableHead>
               <TableHead>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
                       variant="ghost"
-                      className="h-8 w-full p-0 font-bold"
+                      className="h-8 w-full p-0 font-bold text-muted-foreground hover:text-foreground"
                     >
-                      fcast
-                      <Info className="ml-1 h-4 w-4" />
+                      fcast <Info className="ml-1 h-4 w-4" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-80">
@@ -386,7 +397,7 @@ export function FootballScoresTable({
                       <div className="grid gap-2">
                         <div className="grid grid-cols-3 items-center gap-4">
                           <span className="text-sm font-medium">Correct:</span>
-                          <span className="col-span-2 text-green-600">
+                          <span className="col-span-2 text-green-600 dark:text-green-400">
                             {correctForecasts}
                           </span>
                         </div>
@@ -394,7 +405,7 @@ export function FootballScoresTable({
                           <span className="text-sm font-medium">
                             Incorrect:
                           </span>
-                          <span className="col-span-2 text-red-600">
+                          <span className="col-span-2 text-red-600 dark:text-red-400">
                             {incorrectForecasts}
                           </span>
                         </div>
@@ -409,10 +420,10 @@ export function FootballScoresTable({
                   </PopoverContent>
                 </Popover>
               </TableHead>
-              <TableHead>League</TableHead>
-              <TableHead>Flag</TableHead>
+              <TableHead className="text-muted-foreground">League</TableHead>
+              <TableHead className="text-muted-foreground">Flag</TableHead>
               <TableHead>
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -420,24 +431,46 @@ export function FootballScoresTable({
             {scores.map((score, index) => {
               const forecastValue = getForecast(score.rowNumber);
               const historyForRow = forecastHistory[score.rowNumber] ?? [];
-              const isMatchFinished = score.status.short === "FT";
               const isMatchNotStarted = score.status.short === "NS";
+
+              // Day Grouping Logic (using local day)
+              const currentMatchDayStart = getLocalDay(
+                new Date(score.startTime),
+              );
+              const prevMatchDayStart =
+                index > 0
+                  ? getLocalDay(new Date(scores[index - 1]!.startTime))
+                  : null;
+              const showDaySeparator =
+                index === 0 ||
+                (prevMatchDayStart &&
+                  !isDateEqual(currentMatchDayStart, prevMatchDayStart));
+              const formattedDay = format(currentMatchDayStart, "EEEE, MMM d");
 
               return (
                 <React.Fragment key={score.fixtureId}>
-                  {(index === 0 || score.day !== scores[index - 1]?.day) && (
-                    <TableRow key={`day-${score.day}-${score.fixtureId}`}>
+                  {/* Day Separator Row */}
+                  {showDaySeparator && (
+                    <TableRow
+                      key={`day-${formattedDay}-${score.fixtureId}`}
+                      className="hover:bg-transparent dark:hover:bg-transparent"
+                    >
                       <TableCell
                         colSpan={12}
-                        className="bg-muted py-2 text-center font-semibold"
+                        className="bg-slate-100 py-2 text-center font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400"
                       >
-                        {score.day}
+                        {formattedDay}
                       </TableCell>
                     </TableRow>
                   )}
+                  {/* Main Row */}
                   <TableRow>
-                    <TableCell>{score.rowNumber}</TableCell>
-                    <TableCell>{formatDisplayTime(score.startTime)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {score.rowNumber}
+                    </TableCell>
+                    <TableCell>
+                      {formatDisplayTime(new Date(score.startTime))}
+                    </TableCell>
                     <TableCell className="text-left">
                       <button
                         onClick={() =>
@@ -447,19 +480,19 @@ export function FootballScoresTable({
                             score.league.id,
                           )
                         }
-                        className="flex items-center gap-2 text-left hover:text-blue-600 hover:underline"
+                        className="flex items-center gap-2 text-left hover:text-blue-500 hover:underline dark:hover:text-blue-400"
                         title={score.home.name}
                       >
                         {score.home.logo ? (
                           <Image
                             src={score.home.logo}
-                            alt="" // Decorative
+                            alt=""
                             width={20}
                             height={20}
                             className="shrink-0"
                           />
                         ) : (
-                          <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200" />
+                          <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700" />
                         )}
                         <span className="truncate">{score.home.name}</span>
                       </button>
@@ -473,19 +506,19 @@ export function FootballScoresTable({
                             score.league.id,
                           )
                         }
-                        className="flex items-center gap-2 text-left hover:text-blue-600 hover:underline"
+                        className="flex items-center gap-2 text-left hover:text-blue-500 hover:underline dark:hover:text-blue-400"
                         title={score.away.name}
                       >
                         {score.away.logo ? (
                           <Image
                             src={score.away.logo}
-                            alt="" // Decorative
+                            alt=""
                             width={20}
                             height={20}
                             className="shrink-0"
                           />
                         ) : (
-                          <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200" />
+                          <div className="h-5 w-5 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700" />
                         )}
                         <span className="truncate">{score.away.name}</span>
                       </button>
@@ -493,23 +526,32 @@ export function FootballScoresTable({
                     <TableCell className="font-medium">
                       {getScoreDisplay(score.score, score.status)}
                     </TableCell>
-                    <TableCell>{score.odds.home ?? "-"}</TableCell>
-                    <TableCell>{score.odds.draw ?? "-"}</TableCell>
-                    <TableCell>{score.odds.away ?? "-"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {score.odds.home ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {score.odds.draw ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {score.odds.away ?? "-"}
+                    </TableCell>
                     <TableCell
-                      style={getForecastCellStyle(
-                        score.score,
-                        score.status,
-                        forecastValue,
+                      className={cn(
+                        "text-center",
+                        getForecastCellClasses(
+                          score.score,
+                          score.status,
+                          forecastValue,
+                        ),
                       )}
                     >
-                      {forecastValue ? ( // Only show popover if there's a forecast
+                      {forecastValue ? (
                         <Popover>
                           <PopoverTrigger asChild>
                             <Button
-                              variant="ghost"
-                              className="h-8 w-full p-0 font-medium"
-                              disabled={isHistoryLoading} // Disable while loading history
+                              variant="link"
+                              className="h-auto p-0 font-medium text-current hover:no-underline"
+                              disabled={isHistoryLoading}
                             >
                               {forecastValue}
                             </Button>
@@ -518,12 +560,12 @@ export function FootballScoresTable({
                             {isHistoryLoading ? (
                               <div className="flex items-center text-sm text-muted-foreground">
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Loading history...
+                                Loading...
                               </div>
                             ) : (
                               <div className="flex items-center space-x-2">
                                 <span className="text-sm font-medium">
-                                  Recent History:
+                                  History:
                                 </span>
                                 <ForecastHistoryDots history={historyForRow} />
                               </div>
@@ -531,11 +573,11 @@ export function FootballScoresTable({
                           </PopoverContent>
                         </Popover>
                       ) : (
-                        <span></span>
+                        <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell
-                      className="truncate"
+                      className="max-w-[150px] truncate text-muted-foreground"
                       title={`${score.league.country} - ${score.league.name}`}
                     >
                       {`${score.league.country} - ${score.league.name}`}
@@ -551,7 +593,7 @@ export function FootballScoresTable({
                           className="shrink-0"
                         />
                       ) : (
-                        <div className="h-4 w-5 shrink-0 rounded-sm bg-gray-200" />
+                        <div className="h-4 w-5 shrink-0 rounded-sm bg-gray-200 dark:bg-gray-700" />
                       )}
                     </TableCell>
                     <TableCell>
@@ -574,7 +616,7 @@ export function FootballScoresTable({
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <div // Wrap for TooltipTrigger when disabled
+                                <div
                                   className={
                                     isMatchNotStarted
                                       ? "cursor-not-allowed"
@@ -683,6 +725,7 @@ export function FootballScoresTable({
           </TableBody>
         </Table>
       )}
+      {/* Modals */}
       <PredictionModal
         isOpen={modalType === "prediction"}
         onClose={() => setModalType(null)}
