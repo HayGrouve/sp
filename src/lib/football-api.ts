@@ -1,5 +1,5 @@
 // src/lib/football-api.ts
-import type { FootballScore } from "@/types/football-scores";
+import type { FootballScore } from "@/types/football-scores"; // Adjust import path
 import {
   getDay,
   addDays,
@@ -85,22 +85,31 @@ export interface DateRangeInfo {
   startDate: Date;
   endDate: Date;
 }
+
+/**
+ * Calculates the relevant date range and section ID based on a given reference date
+ * (defaults to current time in Sofia) using the specific rotation schedule:
+ * - Sat 10:00 AM to Tue 10:00 AM (Sofia): Shows Sat, Sun, Mon fixtures (sectionType 'SatMon').
+ * - Tue 10:00 AM to Sat 10:00 AM (Sofia): Shows Tue, Wed, Thu, Fri fixtures (sectionType 'TueFri').
+ */
 export function getDateRange(referenceDateInput?: Date): DateRangeInfo {
   const referenceDate = referenceDateInput
     ? toZonedTime(referenceDateInput, SOFIA_TIMEZONE)
     : getCurrentSofiaDate();
   const currentDay = getDay(referenceDate);
   const currentHour = getHours(referenceDate);
-  let sectionStart: Date,
-    sectionEnd: Date,
-    sectionType: "SatMon" | "TueFri",
-    referenceDateForWeek = referenceDate;
+
+  // Initialize return variables
+  let sectionStart: Date;
+  let sectionEnd: Date;
+  let sectionType: "SatMon" | "TueFri";
+  let referenceDateForWeek = referenceDate;
 
   const isSatMonWindow =
-    (currentDay === 6 && currentHour >= 10) ||
-    currentDay === 0 ||
-    currentDay === 1 ||
-    (currentDay === 2 && currentHour < 10);
+    (currentDay === 6 && currentHour >= 10) || // Saturday 10:00 onwards
+    currentDay === 0 || // Sunday
+    currentDay === 1 || // Monday
+    (currentDay === 2 && currentHour < 10); // Tuesday before 10:00
 
   if (isSatMonWindow) {
     sectionType = "SatMon";
@@ -125,6 +134,22 @@ export function getDateRange(referenceDateInput?: Date): DateRangeInfo {
     sectionEnd = addDays(sectionStart, 3);
   }
 
+  // Ensure variables are assigned (should be guaranteed by above logic)
+  // This check is mostly for TypeScript's benefit if it was confused.
+  if (!sectionStart || !sectionEnd || !sectionType) {
+    console.error(
+      "Error in getDateRange logic: section variables not assigned.",
+    );
+    // Provide a default fallback return to satisfy TS, although it indicates a bug
+    const fallbackDate = new Date();
+    return {
+      dates: [format(fallbackDate, "yyyy-MM-dd")],
+      sectionId: "ERROR-UNKNOWN-SECTION",
+      startDate: fallbackDate,
+      endDate: fallbackDate,
+    };
+  }
+
   const dates: string[] = [];
   let currentDate = sectionStart;
   while (
@@ -139,6 +164,7 @@ export function getDateRange(referenceDateInput?: Date): DateRangeInfo {
   const year = getYear(referenceDateForWeek);
   const sectionId = `${year}-W${String(weekNumber).padStart(2, "0")}-${sectionType}`;
 
+  // This return statement is now definitely reached after assignments
   return { dates, sectionId, startDate: sectionStart, endDate: sectionEnd };
 }
 // --- End Helper Functions ---
@@ -147,19 +173,11 @@ export function getDateRange(referenceDateInput?: Date): DateRangeInfo {
  * Helper function to fetch all pages for a given API endpoint URL.
  */
 async function fetchAllPages<
-  // Constraint: T must have a 'response' array, 'paging' info, and 'results'
   T extends { response: R[]; paging: Paging; results: number },
-  // Infer the type of the elements within the 'response' array
   R = T["response"][number],
->(
-  initialUrl: string,
-  options: RequestInit,
-  entityName: string, // For logging (e.g., "fixtures", "odds")
-): Promise<R[]> {
-  // Return an array of the inferred element type R
+>(initialUrl: string, options: RequestInit, entityName: string): Promise<R[]> {
   let currentPage = 1;
   let totalPages = 1;
-  // Use the inferred element type R for the accumulator array
   let allResponses: R[] = [];
 
   console.log(
@@ -171,21 +189,19 @@ async function fetchAllPages<
     console.error(
       `(fetchAllPages - ${entityName}) Error fetching page ${currentPage}: ${initialRes.status} ${initialRes.statusText}`,
     );
-    return []; // Return empty on initial fetch error
+    return [];
   }
 
   try {
     const initialData = (await initialRes.json()) as T;
     if (initialData.response) {
-      // Assign directly as initialData.response matches R[]
       allResponses = initialData.response;
     }
     totalPages = initialData.paging?.total ?? 1;
     console.log(
       `(fetchAllPages - ${entityName}) Page ${currentPage}/${totalPages} fetched. Results: ${initialData.results ?? "N/A"}`,
-    ); // Use results if available
+    );
 
-    // Fetch subsequent pages if necessary
     for (currentPage = 2; currentPage <= totalPages; currentPage++) {
       const pageUrl = `${initialUrl}&page=${currentPage}`;
       console.log(
@@ -203,7 +219,6 @@ async function fetchAllPages<
       try {
         const pageData = (await pageRes.json()) as T;
         if (pageData.response) {
-          // Concatenate arrays of type R
           allResponses = allResponses.concat(pageData.response);
         }
         console.log(
@@ -215,7 +230,6 @@ async function fetchAllPages<
           e,
         );
       }
-      // Optional delay
     }
   } catch (e) {
     console.error(
@@ -224,15 +238,18 @@ async function fetchAllPages<
     );
   }
 
-  return allResponses; // Returns R[]
+  return allResponses;
 }
 
-// --- fetchFootballScores function ---
+/**
+ * Fetches BASE football scores and odds from RapidAPI for given leagues and date range.
+ * Handles pagination. FILTERS OUT fixtures with missing odds.
+ * Assigns sequential row numbers after sorting.
+ */
 export async function fetchFootballScores(
   leagueIds: number[],
   dateRangeInfo: DateRangeInfo,
 ): Promise<FootballScore[]> {
-  // Returns the application type FootballScore
   if (!process.env.RAPIDAPI_KEY) throw new Error("RAPIDAPI_KEY missing");
   const options = {
     method: "GET",
@@ -247,30 +264,29 @@ export async function fetchFootballScores(
     `(Base Data) Fetching all pages of fixtures for dates: ${dateRangeInfo.dates.join(", ")}`,
   );
   const allFixturesPromises = dateRangeInfo.dates.map((date) =>
-    // T is ApiResponse, R is inferred as ApiFixture
     fetchAllPages<ApiResponse>(
       `https://api-football-v1.p.rapidapi.com/v3/fixtures?date=${date}`,
       options,
-      `fixtures-${date}`, // Logging identifier
+      `fixtures-${date}`,
     ),
   );
-  // fixturesByDate will be Promise<(ApiFixture[])[]>
   const fixturesByDate = await Promise.all(allFixturesPromises);
-
-  // Flatten the array: allApiFixtures will be ApiFixture[]
   let allApiFixtures: ApiFixture[] = [];
   fixturesByDate.forEach(
     (fixtures) => (allApiFixtures = allApiFixtures.concat(fixtures)),
   );
 
   // Filter by league ID *after* fetching all pages
-  const allFilteredApiFixtures = allApiFixtures.filter((f) =>
+  const leagueFilteredApiFixtures = allApiFixtures.filter((f) =>
     leagueIds.includes(f.league.id),
   );
+  console.log(
+    `(Base Data) Found ${leagueFilteredApiFixtures.length} initial fixtures for leagues.`,
+  );
 
-  // Add the 'day' property
+  // Add the 'day' property based on local time
   const allFixturesWithDay: (ApiFixture & { day: string })[] =
-    allFilteredApiFixtures.map((f) => ({
+    leagueFilteredApiFixtures.map((f) => ({
       ...f,
       day: format(parseISO(f.fixture.date), "EEEE, MMM d", {
         timeZone: SOFIA_TIMEZONE,
@@ -278,29 +294,22 @@ export async function fetchFootballScores(
     }));
 
   if (allFixturesWithDay.length === 0) {
-    console.log("(Base Data) No matches found for leagues.");
+    console.log("(Base Data) No matches found after league filtering.");
     return [];
   }
-  console.log(
-    `(Base Data) Found ${allFixturesWithDay.length} initial fixtures after league filtering.`,
-  );
 
   // --- Step 2: Fetch ALL Odds by Date (Handles Pagination) ---
   console.log(
     `(Base Data) Fetching all pages of odds for dates: ${dateRangeInfo.dates.join(", ")}`,
   );
   const allOddsPromises = dateRangeInfo.dates.map((date) =>
-    // T is OddsResponse, R is inferred as OddsFixture
     fetchAllPages<OddsResponse>(
       `https://api-football-v1.p.rapidapi.com/v3/odds?date=${date}&bookmaker=${TARGET_BOOKMAKER_ID}&bet=${MATCH_WINNER_BET_ID}`,
       options,
-      `odds-${date}`, // Logging identifier
+      `odds-${date}`,
     ),
   );
-  // oddsByDate will be Promise<(OddsFixture[])[]>
   const oddsByDate = await Promise.all(allOddsPromises);
-
-  // Flatten the array: allOddsFixtures will be OddsFixture[]
   let allOddsFixtures: OddsFixture[] = [];
   oddsByDate.forEach(
     (odds) => (allOddsFixtures = allOddsFixtures.concat(odds)),
@@ -310,7 +319,7 @@ export async function fetchFootballScores(
   const oddsMap = new Map<
     number,
     { home: string; draw: string; away: string }
-  >(); // Expect non-null strings here
+  >();
   allOddsFixtures.forEach((oFix) => {
     const b = oFix.bookmakers?.find((b) => b.id === TARGET_BOOKMAKER_ID);
     const bet = b?.bets?.find((b) => b.id === MATCH_WINNER_BET_ID);
@@ -327,33 +336,26 @@ export async function fetchFootballScores(
   );
 
   // --- Step 4: Combine Fixtures and Odds, FILTERING for odds, Sort, Assign Row Numbers ---
-  const combinedScores: FootballScore[] = allFixturesWithDay // Final type is FootballScore
+  const combinedScores: FootballScore[] = allFixturesWithDay
     .map((fixture): FootballScore | null => {
-      // Intermediate can be null
       const fixtureId = fixture.fixture.id;
-      const fixtureOdds = oddsMap.get(fixtureId); // Lookup odds
+      const fixtureOdds = oddsMap.get(fixtureId);
+      if (!fixtureOdds) return null; // Filter if no odds
 
-      // *** FILTERING STEP ***: Skip if odds weren't found in the map
-      if (!fixtureOdds) {
-        return null;
-      }
-
-      // Construct the object - odds are guaranteed non-null here
-      // Ensure the structure matches the application-level FootballScore type
       return {
         day: fixture.day,
-        rowNumber: 0, // Placeholder
+        rowNumber: 0,
         fixtureId: fixtureId,
-        startTime: fixture.fixture.date, // Use Date object
+        startTime: fixture.fixture.date, // Keep as ISO string
         status: fixture.fixture.status,
         home: fixture.teams.home,
         away: fixture.teams.away,
         score: fixture.goals,
         league: fixture.league,
-        odds: fixtureOdds, // Assign the non-null odds
+        odds: fixtureOdds,
       };
     })
-    .filter((score): score is FootballScore => score !== null); // Type predicate removes nulls
+    .filter((score): score is FootballScore => score !== null);
 
   console.log(
     `(Base Data) Combined ${combinedScores.length} fixtures WITH complete odds.`,
@@ -375,15 +377,13 @@ export async function fetchFootballScores(
 
 /**
  * Fetches ONLY live football scores from RapidAPI.
- * Uses the /fixtures?live=... endpoint. PAGINATION IS NOT EXPECTED/HANDLED HERE.
- * The 'live' endpoint typically returns only currently active games, unlikely to be paginated.
+ * Uses the /fixtures?live=... endpoint. Handles pagination.
  */
 export async function fetchLiveFixtures(
   leagueIds: number[],
 ): Promise<ApiFixture[]> {
   if (!process.env.RAPIDAPI_KEY) throw new Error("RAPIDAPI_KEY missing");
-
-  const liveFilter = leagueIds.join("-"); // Check API limits for length
+  const liveFilter = leagueIds.join("-");
   const initialUrl = `https://api-football-v1.p.rapidapi.com/v3/fixtures?live=${liveFilter}`;
   const options = {
     method: "GET",
@@ -392,26 +392,20 @@ export async function fetchLiveFixtures(
       "X-RapidAPI-Host": RAPIDAPI_HOST,
     },
   };
-
   console.log(
     `(Live Data) Fetching all pages of live fixtures for ${leagueIds.length} leagues...`,
   );
-
   try {
-    // Use fetchAllPages to handle potential pagination for the live endpoint
-    // T is ApiResponse, R is inferred as ApiFixture
     const allLiveFixtures: ApiFixture[] = await fetchAllPages<ApiResponse>(
       initialUrl,
       options,
-      `live-${liveFilter.substring(0, 50)}`, // Create a logging identifier
+      `live-${liveFilter.substring(0, 50)}`,
     );
-
     console.log(
       `(Live Data) Found ${allLiveFixtures.length} total live fixtures across all pages.`,
     );
     return allLiveFixtures;
   } catch (error) {
-    // Error during fetchAllPages execution (e.g., initial fetch failed hard)
     console.error("(Live Data) Error fetching live fixtures:", error);
     return [];
   }
